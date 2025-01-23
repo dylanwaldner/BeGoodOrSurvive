@@ -14,6 +14,8 @@ from .text_generation import generate_text  # Example: Replace with actual text 
 
 from .rates_utils import get_initial_rates, get_final_rates
 
+from .checkpoint import save_checkpoint, load_checkpoint
+
 # If desired, define what gets imported when using `from utils import *`
 __all__ = [
     "normalize_string",

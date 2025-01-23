@@ -73,7 +73,7 @@ conn_delete_prob        = 0.9
 
 # Number of inputs, outputs, and connections
 num_hidden              = 0
-num_inputs              = 7686
+num_inputs              = 1542
 num_outputs             = 4
 initial_connection      = full
 

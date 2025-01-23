@@ -84,9 +84,8 @@ if __name__ == "__main__":
         ethical_ground_truths = []
         gen_loss_history = []
         gen_ethical_history = []
-        num_gens = 90
+        num_gens = 10
         global_counter = 0
-        # Call the loop logic
         result, gen_loss_history, gen_ethical_history, ethical_ground_truths, survival_ground_truths = generational_driver(
             votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history,
             ground_truth_label_list, ethical_ground_truths, gen_loss_history, gen_ethical_history,

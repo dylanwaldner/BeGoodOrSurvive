@@ -50,7 +50,7 @@ def update_bnn_history(response, agent, bnn_history, max_length, temperature, to
             input=response,
             model="text-embedding-3-small"
         ).data[0].embedding
-        response_embedding.extend([-1] * 1536 * 4)
+        #response_embedding.extend([-1] * 1536 * 4)  ### Commenting out to do single storyteller embedding
         #response_emotion_score = emotion_rating(response, agent, max_length, 0.1, top_p)
         bnn_history.append({
             "id": global_counter,
@@ -64,21 +64,22 @@ def update_bnn_history(response, agent, bnn_history, max_length, temperature, to
         #print("Response Embedding Length (Agent): ", len(response_embedding))
 
     elif agent == "Storyteller":
-        intro, choices = extract_choices_and_intro(response)
-        response_embedding = []
-        intro_embedding = client.embeddings.create(
-            input=intro,
+        #intro, choices = extract_choices_and_intro(response) Commenting out to handle single embedding
+        #response_embedding = []
+        response_embedding = client.embeddings.create(
+            input=response,
             model="text-embedding-3-small"
         ).data[0].embedding
-        response_embedding.extend(intro_embedding)
+        #response_embedding.extend(intro_embedding)
         #print("CHOICE_LIST: ", choices)
+        '''
         for choice in choices:
             choice_embedding = client.embeddings.create(
                 input=choice,
                 model="text-embedding-3-small"
             ).data[0].embedding
             response_embedding.extend(choice_embedding)
-
+        '''
         #print(len(response_embedding))
 
         if death:

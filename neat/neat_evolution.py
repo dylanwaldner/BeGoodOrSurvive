@@ -7,6 +7,7 @@ import torch
 import sys
 import traceback
 import subprocess
+import datetime
 
 def log_gpu_utilization(rank=None):
     gpu_id = os.getenv("CUDA_VISIBLE_DEVICES", "0")
@@ -44,7 +45,7 @@ import pyro
 import pyro.infer
 
 import bnn_neat
-#from bnn_neat.checkpoint import Checkpointer
+from bnn_neat.checkpoint import Checkpointer
 from bnn_neat.config import Config
 from bnn_neat.genome import DefaultGenome
 from bnn_neat.reproduction import DefaultReproduction
@@ -131,7 +132,7 @@ class NeatEvolution:
         self.config = config
         self.config_path = config_path
         self.bnn = bnn
-        self.stagnation_limit = 25
+        self.stagnation_limit = 235
         self.neat_iteration = neat_iteration
         self.population_tradeoffs = []
         self.best_fitness = None
@@ -159,10 +160,22 @@ class NeatEvolution:
             self.stats = bnn_neat.StatisticsReporter()
             self.population.add_reporter(self.stats)
             print(f"Rank {self.rank}: Population initialized", flush=True)
+            self.checkpointer = Checkpointer(generation_interval=5, time_interval_seconds=600, filename_prefix="neat_checkpoints/neat-checkpoint-")
+            self.population.add_reporter(self.checkpointer)
         else:
             self.population = None
 
         # Synchronize all ranks after initialization
+        self.comm.Barrier()
+
+    def restore_from_checkpoint(self, checkpoint_path):
+        if self.rank == 0:
+            self.population = Checkpointer.restore_checkpoint(checkpoint_path)
+            print(f"Rank {self.rank}: Restored population from checkpoint: {checkpoint_path}", flush=True)
+        else:
+            self.population = None
+
+        # Synchronize all ranks after restoration
         self.comm.Barrier()
 
     def set_device_for_current_rank(self):
@@ -490,17 +503,17 @@ class NeatEvolution:
             # Update evaluation_window for each genome
             for genome_id, fitness, genome in local_results:
                 if k <= 5:  # Early exploration phase
-                    genome.evaluation_window = 5
+                    genome.evaluation_window = 20
                 elif 5 < k <= 15:  # Intermediate phase
                     if genome_id in top_genome_ids:
-                        genome.evaluation_window = 10
+                        genome.evaluation_window = 40
                     else:
-                        genome.evaluation_window = 5
+                        genome.evaluation_window = 20
                 elif k > 15:  # Later phase with more refined genomes
                     if genome_id in top_genome_ids:
-                        genome.evaluation_window = 15
+                        genome.evaluation_window = 60
                     else:
-                        genome.evaluation_window = 5
+                        genome.evaluation_window = 20
 
             # Step 3: Prepare results to send back to Rank 0
             # Update local_results to include the updated genomes
@@ -606,17 +619,17 @@ class NeatEvolution:
                 if self.generations_without_improvement >= self.stagnation_limit:
                     print(f"Stopping evolution: No improvement in fitness for {self.stagnation_limit} generations.")
                     save_evolution_results(self.evolution_results, self.population_tradeoffs, neat_iteration = self.neat_iteration)
-                    continue_evolution = True
+                    should_stop = True
                 else:
-                    continue_evolution = False
+                    should_stop = False
 
             else:
-                continue_evolution = None
+                should_stop = None
 
             # Broadcast the decision to all processes
-            continue_evolution = comm.bcast(continue_evolution, root=0)
+            should_stop = comm.bcast(should_stop, root=0)
             comm.Barrier()
-            return continue_evolution
+            return should_stop
 
         except Exception as e:
             logging.error(f"Rank {rank}: Error during fitness function: {e}")

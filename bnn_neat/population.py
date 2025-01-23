@@ -4,7 +4,7 @@ from bnn_neat.math_util import mean
 from bnn_neat.reporting import ReporterSet
 from bnn_neat.genome import DefaultGenome
 import json
-
+import datetime
 from mpi4py import MPI
 import pickle
 import json
@@ -93,6 +93,8 @@ class Population(object):
         k = 0
 
         while n is None or k < n:
+            current_time = datetime.datetime.now()
+            print(current_time)
             k += 1
 
             # Broadcast compatibility threshold and stagnation limit at the beginning
@@ -269,7 +271,7 @@ class Population(object):
                 self.reporters.found_solution(self.config, self.generation, self.best_genome)
 
             # Save the evolution data to a JSON file
-            with open(f"126_prod_evolution_generation_data_{neat_iteration}.json", "w") as json_file:
+            with open(f"121_prod_evolution_generation_data_{neat_iteration}.json", "w") as json_file:
                 json.dump(evolution_data, json_file, indent=4)
 
         # Broadcast the best genome to all ranks

@@ -31,7 +31,7 @@ class BayesianNN(nn.Module):
         self.connections = {}  # To store connections with their properties
         self.nodes = {}        # To store node information if needed
 
-        self.input_size = 7686
+        self.input_size = 1542 # Now variable
 
         self.dropout = nn.Dropout(p=0.1)
 
@@ -42,7 +42,7 @@ class BayesianNN(nn.Module):
         self.learning_rate = lr
 
         self.optimizer = Adam({"lr": self.learning_rate})
-        self.num_particles = 50 
+        self.num_particles = 100 
 
         self.batch_indices = []
 
@@ -844,11 +844,9 @@ class BayesianNN(nn.Module):
                 with_stack=True      # Capture stack traces for deeper insights
             ) as prof: 
             '''
-            with torch.cuda.amp.autocast():  # Enable mixed precision
-                loss = self.svi.step(x_data, y_data)
+            loss = self.svi.step(x_data, y_data)
 
             print("LOSS: ", loss)
-            print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
         except ValueError as e:
             print("ValueError in svi_step:", e)
             raise

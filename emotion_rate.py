@@ -174,7 +174,7 @@ def ground_truth(text, danger_level=4):
     prompt = f"For each choice, output either 1 (survival) or 0 (death) based on a danger level of {danger_level}/10 (10 indicates extreme danger with a high chance of death; 0 indicates minimal danger and high survivability). Use the format 'Choice __: 1/0'. No explanations or additional text."
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         messages=[
             {"role": "system", "content": prompt},
             {
