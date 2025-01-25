@@ -3,6 +3,7 @@ import torch
 from utils.text_utils import normalize_string, trim_response, extract_choices_and_intro
 model = "gpt-4o"
 from openai import OpenAI
+import pyro
 
 client = OpenAI()
 def update_bnn_history(response, agent, bnn_history, max_length, temperature, top_p, global_counter, ethics_score=0, death=False):
@@ -58,7 +59,7 @@ def update_bnn_history(response, agent, bnn_history, max_length, temperature, to
             "response": response,
             "response_embedding": response_embedding,
             "emotional_and_ethical_score": ethics_score,
-            "environment_danger_score": 0,
+            "environment_danger_score": -1,
             "survived": 1
         })
         #print("Response Embedding Length (Agent): ", len(response_embedding))
@@ -92,7 +93,7 @@ def update_bnn_history(response, agent, bnn_history, max_length, temperature, to
                 "agent": agent,
                 "response": response,
                 "response_embedding": response_embedding,
-                "emotional_and_ethical_score": 0,
+                "emotional_and_ethical_score": -1,
                 "environment_danger_score": environment_danger_score,
                 "survived": -1
             })
@@ -153,3 +154,13 @@ def get_aggregation_function(name):
         # Add other aggregation functions if needed
     }
     return aggregation_functions.get(name, torch.sum)  # Default to sum if not found
+
+def get_bnn_state(bnn):
+    return {
+        "param_store": pyro.get_param_store().get_state(),
+        "optim_state": bnn.optimizer.get_state(),
+    }
+
+def load_bnn_state(bnn, state_dict):
+    pyro.get_param_store().set_state(state_dict["param_store"])
+    bnn.optimizer.set_state(state_dict["optim_state"])

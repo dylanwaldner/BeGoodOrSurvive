@@ -22,7 +22,7 @@ from bnn.attention import compute_attention
 
 # Define the Bayesian Neural Network that will be evolved by NEAT
 class BayesianNN(nn.Module):
-    def __init__(self, genome, config, attention_layers=None, lr=0.00001):
+    def __init__(self, genome, config, attention_layers=None, lr=0.001):
         super(BayesianNN, self).__init__()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

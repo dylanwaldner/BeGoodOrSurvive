@@ -14,7 +14,7 @@ from utils.text_utils import normalize_string, trim_response, extract_choices_an
 from utils.rates_utils import get_initial_rates, get_final_rates, print_config_values
 from utils.checkpoint import save_checkpoint, load_checkpoint
 
-from bnn.bnn_utils import update_bnn_history
+from bnn.bnn_utils import update_bnn_history, get_bnn_state, load_bnn_state
 import sys
 
 import torch
@@ -23,6 +23,13 @@ import json
 import os
 
 import numpy as np
+
+import pyro
+import pyro.distributions as dist
+from pyro.infer import SVI, Trace_ELBO, TraceGraph_ELBO
+import pyro.infer
+from pyro.optim import Adam
+from pyro.ops.indexing import Vindex
 
 # Initialize MPI
 
@@ -44,16 +51,23 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
         max_loops = 10
         exit_code = 'Weak Agent died. Game over.'  # This is the expected exit code from the storyteller to stop the game
         last_weak = ""
+
+        # Labels
         losses = []
         ethics = []
-        decision_data = []  # To store detailed decision-making information
+
+        # Summary Logging
+        sampled_choices = []
+        agent_choices = []
+        storyteller_responses = []
+        full_choice_probabilities = []
+        loop_durations = []
 
         # Summary for items not covered by bnn_history
         summary = {
             "game_number": None,
             "ground_truth_labels": [],
             "ethical_scores": [],
-            "decision_data": [],
             "decision_loss_summary": {},
             "game_loss": "None",
             "game_danger": danger,
@@ -88,6 +102,8 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
 
                 intro, choices = extract_choices_and_intro(storyteller_response)
 
+            storyteller_responses.append((loop_counter + 1, storyteller_response))
+
 
             if len(choices) != 4:
                 raise ValueError("Failed to generate exactly 4 choices after multiple attempts.")
@@ -106,7 +122,6 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
             ethical_scores_dict = {global_counter: ethical_scores_list}
 
             ethical_ground_truths.append(ethical_scores_dict)  # Track normalized ethical scores
-
 
             summary["ground_truth_labels"].append({global_counter: ground_truth_labels})
             summary["ethical_scores"].append({global_counter: ethical_scores_list})
@@ -130,11 +145,16 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
                 )
                 losses.append(loss)
 
+            full_choice_probabilities.append(choice_probabilities)
+
             # Normalize probabilities to ensure they sum to 1
             normalized_probabilities = torch.softmax(choice_probabilities, dim=0)
 
             # Sample based on the normalized probabilities
             sampled_choice = torch.multinomial(normalized_probabilities, num_samples=1).item()
+
+            sampled_choices.append(sampled_choice)
+            agent_choices.append(choices[sampled_choice])
 
             print("Sampled choice:", sampled_choice)
 
@@ -147,23 +167,11 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
             bnn_history = update_bnn_history(response=strong_agent_response, agent="Strong", bnn_history=bnn_history, max_length=max_tokens, temperature=temperature, top_p=top_p, ethics_score=ethics_score, global_counter=global_counter)
             shared_history.append({"role": "user", "content": "strong agent: " + strong_agent_response})
 
-            # Track decision details
-            decision_details = {
-                "loop_number": loop_counter + 1,
-                "storyteller_response": storyteller_response,
-                "strong_agent_choice": choices[sampled_choice],
-                "choice_index": sampled_choice,
-                "ground_truth_label": ground_truth_labels,
-                "ethical_ground_truths": ethical_scores_list,
-                "choice_probabilities": choice_probabilities.tolist(),
-                "loss": loss
-            }
 
             # Calculate loop duration and add it to the decision details
             loop_end_time = time.time()
             loop_duration = loop_end_time - loop_start_time
-            decision_details["decision_duration"] = loop_duration
-            decision_data.append(decision_details)
+            loop_durations.append(loop_duration)
 
             did_agent_survive = ground_truth_labels[sampled_choice]
 
@@ -181,43 +189,40 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
             # Increment the loop counter
             loop_counter += 1
 
+            assert len(losses) == loop_counter, f"Assertion failed: len(losses)={len(losses)} does not match loop_counter={loop_counter}"
+            assert len(ethics) == loop_counter, f"Assertion failed: len(ethics)={len(ethics)} does not match loop_counter={loop_counter}"
+            assert len(sampled_choices) == loop_counter, f"Assertion failed: len(sampled_choices)={len(sampled_choices)} does not match loop_counter={loop_counter}"
+            assert len(agent_choices) == loop_counter, f"Assertion failed: len(agent_choices)={len(agent_choices)} does not match loop_counter={loop_counter}"
+            assert len(storyteller_responses) == loop_counter, f"Assertion failed: len(storyteller_responses)={len(storyteller_responses)} does not match loop_counter={loop_counter}"
+            assert len(loop_durations) == loop_counter, f"Assertion failed: len(loop_durations)={len(loop_durations)} does not match loop_counter={loop_counter}"
+
+
             assert len(ground_truth_label_list) == sum(1 for entry in bnn_history if entry["agent"] == "Storyteller"), "Mismatch in counts!"
             sys.stdout.flush()
             torch.cuda.empty_cache()
         #### Game over ####
 
+        # Track decision details
+        decision_details = {
+            "loop_number": range(1, loop_counter + 2),
+            "storyteller_response": storyteller_responses,
+            "strong_agent_choice": agent_choices,
+            "choice_index": sampled_choices,
+            "choice_probabilities": full_choice_probabilities,
+            "loss": losses
+        }
+
         game_end_time = time.time()
         game_duration = game_end_time - game_start_time
         summary["game_time"] = game_duration
 
-        if train == 3:
-            print("In svi step", flush=True)
-            strong_bnn.batch_indices = batch_indices
-            print("STRONG BNN BATCH INDICES: ", strong_bnn.batch_indices)
-
-            svi_ground_truths = []
-            for batch_index in strong_bnn.batch_indices:
-                for ground_truth_dict in ground_truth_label_list:
-                    if batch_index in ground_truth_dict.keys():  # Explicitly check keys
-                        svi_ground_truths.append(ground_truth_dict[batch_index])
-                        break  # Move to the next batch index once the ground truth is found
-            start_svi = time.time()
-            loss = strong_bnn.svi_step(bnn_history, svi_ground_truths)
-            end_svi = time.time()
-            svi_time = end_svi - start_svi
-            print("SVI took: ", svi_time, "seconds", flush=True)
-            summary["game_loss"] = loss
-
-
         # Summarize losses
-        if loss:
-            gen_loss_history.append(loss)
-        else:
-            loss = sum(losses)/len(losses)
-            gen_loss_history.append(loss)
+        loss = sum(losses)/len(losses)
+        gen_loss_history.append(loss)
 
 
         gen_ethical_history.append(ethics)
+
         loss_summary = {
             "mean_loss": float(np.mean(losses)),
             "median_loss": float(np.median(losses)),
@@ -228,6 +233,7 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
             "top_5_losses": sorted(losses, reverse=True)[:5],
             "bottom_5_losses": sorted(losses)[:5]
         }
+
         summary["decision_loss_summary"] = loss_summary
 
         summary["decision_details"] = decision_details
@@ -239,10 +245,28 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
 
     result_data = comm.bcast(result_data, root=0)  # Broadcast to all ranks'''
     if rank == 0:
+
+        temp_svi = strong_bnn.svi
+        temp_optimizer = strong_bnn.optimizer
+
+        strong_bnn.svi = None
+        strong_bnn.optimizer = None
+
         result_data = (summary, strong_bnn, bnn_history, ground_truth_label_list, ethical_ground_truths,
                        gen_loss_history, gen_ethical_history, loop_counter, global_counter)
 
         # Test each variable for pickle compatibility (debugging purpose)
+        for attr_name, attr_value in strong_bnn.__dict__.items():
+            try:
+                import pickle
+                pickle.dumps(attr_value)  # Attempt to serialize the attribute
+                print(f"Attribute '{attr_name}' of type {type(attr_value)}: Successfully pickled.")
+            except TypeError as e:
+                print(f"Attribute '{attr_name}' of type {type(attr_value)}: Failed to pickle. Error: {e}")
+                import weakref
+                if isinstance(attr_value, weakref.ReferenceType):
+                    print(f"Attribute '{attr_name}' contains a weak reference.")
+
         for i, element in enumerate(result_data):
             try:
                 import pickle
@@ -255,18 +279,6 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
                         if isinstance(attr_value, weakref.ReferenceType):
                             print(f"Weakref found in attribute: {attr_name}")
 
-        for attr_name, attr_value in strong_bnn.__dict__.items():
-            try:
-                import pickle
-                pickle.dumps(attr_value)  # Attempt to serialize the attribute
-                print(f"Attribute '{attr_name}' of type {type(attr_value)}: Successfully pickled.")
-            except TypeError as e:
-                print(f"Attribute '{attr_name}' of type {type(attr_value)}: Failed to pickle. Error: {e}")
-                import weakref
-                if isinstance(attr_value, weakref.ReferenceType):
-                    print(f"Attribute '{attr_name}' contains a weak reference.")
-
-
     else:
         # Other ranks need to participate in the broadcast
         result_data = None
@@ -274,11 +286,41 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
     # Actual broadcast of the entire result_data tuple
     result_data = comm.bcast(result_data, root=0)
 
-    # Unpacking or using the received result_data
-    if rank != 0:
-        summary, strong_bnn, bnn_history, ground_truth_label_list, ethical_ground_truths, \
-        gen_loss_history, gen_ethical_history, loop_counter, global_counter = result_data
+    if rank == 0:
+        # 4) Put the references back on rank 0
+        strong_bnn.svi = temp_svi
+        strong_bnn.optimizer = temp_optimizer
+    else:
+        # We received a strong_bnn object with None optimizer/svi
+        (summary,
+         strong_bnn,
+         bnn_history,
+         ground_truth_label_list,
+         ethical_ground_truths,
+         gen_loss_history,
+         gen_ethical_history,
+         loop_counter,
+         global_counter) = result_data
 
+        # 5) Re-create the missing Pyro objects
+        #    For example, call a local method or the constructor again.
+        #    Or you can do something like this:
+        strong_bnn.optimizer = Adam({"lr": strong_bnn.learning_rate})
+        strong_bnn.svi = SVI(strong_bnn.model, strong_bnn.guide, strong_bnn.optimizer, loss=TraceGraph_ELBO(num_particles=strong_bnn.num_particles, vectorize_particles=True))
+
+    if rank == 0:
+        bnn_state = get_bnn_state(strong_bnn)
+    else:
+        bnn_state = None
+
+    # Everyone receives the same state dictionary
+    bnn_state = comm.bcast(bnn_state, root=0)
+
+    # Now all ranks can load that state
+    load_bnn_state(strong_bnn, bnn_state)
+
+    result_data = (summary, strong_bnn, bnn_history, ground_truth_label_list, ethical_ground_truths,
+                       gen_loss_history, gen_ethical_history, loop_counter, global_counter)
         
     return result_data
 
@@ -307,7 +349,6 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
             "config_history": {},
             "lr_history": {},
         }
-
 
     if rank == 0:
         # Create a snapshot of the current configuration
@@ -402,8 +443,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
             # Final rates for gradual decay to lower values (e.g., 0.1 for most parameters)
             final_rates = get_final_rates()
 
-        #if counter % 5 == 0 and rank == 0:
-        if counter == 1 and rank == 0:
+        if counter % 100 == 0 and rank == 0:
             print("SVI Start")
             batch_indices = range(last_step, global_counter)
 
@@ -431,7 +471,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
         if counter in [30, 60, 90]:
             print("NEAT TIME")
             # After an SVI step
-            if rank == 0:
+            if rank == 0 and neat:
                 neat_iteration = counter // (num_gens // total_iterations)
                 optimized_params_svi = strong_bnn.get_optimized_parameters()  # Retrieves optimized params as a dictionary
                 #print("SVI Optimized Parameters:", optimized_params_svi)
@@ -500,19 +540,19 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
                 overall_summary["lr_history"][f"neat_iteration_{neat_iteration}"] = strong_bnn.learning_rate
 
                 architecture_string = strong_bnn.print_network_architecture()
-                iteration_save_path = f"121_prod_best_architecture_iteration_{neat_iteration}.txt"
+                iteration_save_path = f"124_prod_best_architecture_iteration_{neat_iteration}.txt"
                 with open(iteration_save_path, 'w') as file:
                     file.write(architecture_string)
 
                 # Save the population tradeoffs for the current NEAT iteration
-                tradeoff_save_path = f'121_prod_population_tradeoffs_iteration_{neat_iteration}.json'
+                tradeoff_save_path = f'124_prod_population_tradeoffs_iteration_{neat_iteration}.json'
                 neat_trainer.population_tradeoffs = make_population_tradeoffs_serializable(neat_trainer.population_tradeoffs)
 
                 with open(tradeoff_save_path, 'w') as f:
                     json.dump(neat_trainer.population_tradeoffs, f, indent=4)
                 print(f"Population tradeoffs saved to '{tradeoff_save_path}'")
 
-                model_save_path = f"121_prod_winner_genome_model_iteration_{neat_iteration}.pth"
+                model_save_path = f"124_prod_winner_genome_model_iteration_{neat_iteration}.pth"
                 torch.save({
                     'model_state_dict': strong_bnn.state_dict(),
                     'genome': winner_genome,  # Save genome if useful for future use
@@ -566,8 +606,8 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
                 'neat_trainer_state': neat_trainer.get_state() if hasattr(neat_trainer, 'get_state') else None,
 
                 # Pyro parameter store (to resume SVI state)
-                'pyro_param_store': pyro.get_param_store().get_state()
-                ,}, "checkpoint.pth")
+                #'pyro_param_store': pyro.get_param_store().get_state()
+                }, "checkpoint.pth")
             print(f"Checkpoint saved at generation {counter}")
 
 
@@ -589,10 +629,11 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
                 # Append result for the current game directly in the loop
                 result_copy = result.copy()  # Make a copy to avoid overwriting
                 result_copy["test_game"] = test_game  # Add test game number for clarity
+                overall_summary["detailed_gen_data"].append(result_copy)
                 generational_history.append(result_copy)
 
                 # Update rounds survived history
-                rounds_survived_history[f"Test Game {test_game}"] = rounds_survived
+                overall_summary["rounds_survived_history"][f"Test Game {test_game}"] = rounds_survived
 
     if rank == 0:
         # Aggregate all data at the end
@@ -653,7 +694,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
 
         # Save the final summary to JSON
         try:
-            with open("121_prod_experiment_summary.json", "w") as summary_file:
+            with open("124_prod_experiment_summary.json", "w") as summary_file:
                 json.dump(overall_summary_serializable, summary_file, indent=4)
             print(f"Experiment summary saved to '121_prod_experiment_summary.json'")
         except Exception as e:

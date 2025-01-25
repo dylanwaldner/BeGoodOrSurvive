@@ -22,8 +22,7 @@ import matplotlib.pyplot as plt
 import pyro
 import torch.multiprocessing as mp
 
-from loops import main_loop, generational_driver
-from baseline_loops import main_loop_baseline, generational_driver_baseline
+from svi_loops import main_loop, generational_driver
 from utils.plotting import plot_loss_and_survival, plot_survival_and_ethics, plot_loss_and_ethics
 from utils.utils_logging import save_experiment_results
 from neat.neat_evolution import NeatEvolution
@@ -85,12 +84,13 @@ if __name__ == "__main__":
         ethical_ground_truths = []
         gen_loss_history = []
         gen_ethical_history = []
-        num_gens = 10
+        num_gens = 90
         global_counter = 0
-        result, gen_loss_history, gen_ethical_history, ethical_ground_truths, survival_ground_truths = generational_driver_baseline(
+        # Call the loop logic
+        result, gen_loss_history, gen_ethical_history, ethical_ground_truths, survival_ground_truths = generational_driver(
             votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history,
             ground_truth_label_list, ethical_ground_truths, gen_loss_history, gen_ethical_history,
-            config, num_gens, neat_trainer, global_counter, comm
+            bnn, config, num_gens, neat_trainer, global_counter, comm
         )
         print("Experiment complete. Results saved.")
 

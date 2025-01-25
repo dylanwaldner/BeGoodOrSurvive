@@ -25,3 +25,29 @@ def respond_storyteller(
     response = generate_text(prompt, system_message, max_length=max_tokens, temperature=temperature, top_p=top_p)
 
     yield response
+
+
+def respond_agent(
+    message,
+    system_message,
+    max_tokens,
+    temperature,
+    top_p,
+    shared_history
+):
+
+    messages = [{"role": "system", "content": str(system_message)}]
+
+    if shared_history:
+        messages.append(shared_history[-1])
+    else:
+        print("Warning: shared_history is empty. Proceeding without additional context.")
+
+
+    # Concatenate message and previous history to generate input for GPT-4o mini
+    prompt = ' '.join([m["content"] for m in messages]) + ' ' + message
+
+    # Use GPT-4o mini to generate text
+    response = generate_text(prompt, system_message, max_length=max_tokens, temperature=temperature, top_p=top_p)
+
+    yield response
