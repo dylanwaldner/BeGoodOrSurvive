@@ -124,7 +124,7 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
             summary["ethical_scores"].append({global_counter: ethical_scores_list})
 
             # Update the histories
-            bnn_history = update_bnn_history(response=storyteller_response, agent="Storyteller", bnn_history=bnn_history, max_length=max_tokens, temperature=temperature, top_p=top_p, global_counter=global_counter)
+            bnn_history = update_bnn_history(response=storyteller_response, agent="Storyteller", bnn_history=bnn_history, max_length=max_tokens, temperature=temperature, top_p=top_p, global_counter=global_counter, danger=danger)
 
             shared_history.append({"role": "assistant", "content": "storyteller: " + storyteller_response})
 
@@ -178,6 +178,7 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
             if did_agent_survive == 0:
                 if len(bnn_history) >= 1:
                     bnn_history[-1]["survived"] = 0
+                    bnn_history[-2]["survived"] = 0
                 print("GAME OVER")
                 print(f"Survived {loop_counter} Rounds")
                 break
@@ -202,7 +203,7 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
 
         # Track decision details
         decision_details = {
-            "loop_number": range(1, loop_counter + 2),
+            "loop_number": list(range(1, loop_counter + 2)),
             "storyteller_response": storyteller_responses,
             "strong_agent_choice": agent_choices,
             "choice_index": sampled_choices,
@@ -249,6 +250,10 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
     if rank == 0:
 
         temp_svi = strong_bnn.svi
+        print("strong_bnn.optimizer:", strong_bnn.optimizer)
+        print("optim_objs:", strong_bnn.optimizer.optim_objs)
+
+
         temp_optimizer = strong_bnn.optimizer
 
         strong_bnn.svi = None
@@ -262,7 +267,7 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
             try:
                 import pickle
                 pickle.dumps(attr_value)  # Attempt to serialize the attribute
-                print(f"Attribute '{attr_name}' of type {type(attr_value)}: Successfully pickled.")
+                #print(f"Attribute '{attr_name}' of type {type(attr_value)}: Successfully pickled.")
             except TypeError as e:
                 print(f"Attribute '{attr_name}' of type {type(attr_value)}: Failed to pickle. Error: {e}")
                 import weakref
@@ -273,7 +278,7 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
             try:
                 import pickle
                 pickle.dumps(element)  # Attempt to serialize the element
-                print(f"Variable {i} ({type(element)}): Successfully pickled.")
+                #print(f"Variable {i} ({type(element)}): Successfully pickled.")
             except TypeError as e:
                 print(f"Variable {i} ({type(element)}): Failed to pickle. Error: {e}")
                 if hasattr(element, "__dict__"):
@@ -363,7 +368,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
         overall_summary["lr_history"]["beginning"] = strong_bnn.learning_rate
 
     if rank == 0:
-        checkpoint_path = "checkpointuse.pth"
+        checkpoint_path = "svicheckpointuse.pth"
         checkpoint_interval = 10  # Save checkpoint every 10 generations
 
         # Initialize variables
@@ -445,7 +450,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
             # Final rates for gradual decay to lower values (e.g., 0.1 for most parameters)
             final_rates = get_final_rates()
 
-        if counter % 30 == 0 and rank == 0:
+        if counter % 1 == 0 and rank == 0:
             print("SVI Start")
             batch_indices = range(last_step, global_counter)
 
@@ -470,16 +475,24 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
             last_step = global_counter + 1
 
 
-        if counter in [30, 60, 90]:
+        if counter in [1, 2, 30, 60, 90]:
             if rank == 0:
 
                 adam_lrs = [0.002, 0.005, 0.01]
                 # Use counter//30 - 1 to properly index 0, 1, 2, 3
                 index = counter // 30 - 1
                 current_lr = adam_lrs[index]
-                for param_group in optimizer.param_groups:
-                    param_group['lr'] = current_lr  # Update the optimizer's learning rate
-                print(f"Learning rate updated to: {current_lr}")
+
+                # Print the current learning rate for each parameter group in PyroOptim
+                print("optim_objs:", strong_bnn.optimizer.optim_objs)
+
+                # Update the learning rate dynamically
+                for param, torch_optimizer in strong_bnn.optimizer.optim_objs.items():
+                    for param_group in torch_optimizer.param_groups:
+                        print(f"Param {param}: Current Learning Rate: {param_group['lr']} (Before)")
+                        param_group['lr'] = current_lr  # Update the learning rate
+                        print(f"Param {param}: Current Learning Rate: {param_group['lr']} (After)")
+
 
                 if "lr_history" not in overall_summary:
                     overall_summary["lr_history"] = {}
@@ -487,7 +500,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
                 overall_summary["lr_history"][f"neat_iteration_{counter//30}"] = current_lr
 
                 architecture_string = strong_bnn.print_network_architecture()
-                iteration_save_path = f"124_prod_svi_best_architecture_iteration_{counter//30}.txt"
+                iteration_save_path = f"127_prod_svi_best_architecture_iteration_{counter//30}.txt"
                 with open(iteration_save_path, 'w') as file:
                     file.write(architecture_string)
 
@@ -498,8 +511,6 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
             else:
                 updated_config = None
 
-            updated_config = comm.bcast(updated_config, root=0)
-            config = updated_config
             comm.Barrier()
 
         if rank == 0:
@@ -555,6 +566,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
                     # Append result for the current game directly in the loop
                     result_copy = result.copy()  # Make a copy to avoid overwriting
                     result_copy["test_game"] = test_game  # Add test game number for clarity
+                    result_copy["game_number"] = test_game + 90
                     overall_summary["detailed_gen_data"].append(result_copy)
                     generational_history.append(result_copy)
 
@@ -620,9 +632,9 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
 
         # Save the final summary to JSON
         try:
-            with open("124_prod_svi_experiment_summary.json", "w") as summary_file:
+            with open("127_prod_svi_experiment_summary.json", "w") as summary_file:
                 json.dump(overall_summary_serializable, summary_file, indent=4)
-            print(f"Experiment summary saved to '124_prod_svi_experiment_summary.json'")
+            print(f"Experiment summary saved to '127_prod_svi_experiment_summary.json'")
         except Exception as e:
             print(f"Error saving experiment summary: {e}")
 

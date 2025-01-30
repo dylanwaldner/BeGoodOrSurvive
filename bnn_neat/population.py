@@ -53,6 +53,7 @@ class Population(object):
             self.population, self.species, self.generation = initial_state
 
         self.best_genome = None
+        self.previous_best_genome = None
 
     def add_reporter(self, reporter):
         self.reporters.add(reporter)
@@ -73,6 +74,83 @@ class Population(object):
             self.config.species_set_config.compatibility_threshold += adjustment_step
             print(f"Increasing compatibility threshold to {config.species_set_config.compatibility_threshold}")
 
+    def freeze_top_genomes(self):
+        """
+        Mark the top 5% of genomes as frozen (no_mutation) based on fitness.
+        """
+        # Sort genomes by fitness (descending)
+        sorted_genomes = sorted(self.population.values(), key=lambda g: g.fitness, reverse=True)
+
+        # Determine the top 5% cutoff
+        top_5_count = max(1, int(0.05 * len(sorted_genomes)))  # At least 1 genome
+
+        # Mark the top genomes as frozen
+        for genome in sorted_genomes[:top_5_count]:
+            genome.no_mutation = True  # Add a freezing flag
+
+        print(f"Generation {self.generation}: {top_5_count} genomes frozen from mutation.")
+
+
+    def adjust_mutation_rates(self, factor=1.1, decrease_factor=0.9, base_rate=0.9, final_rate=0.1, max_gens=25):
+        """
+        Dynamically adjust mutation rates based on fitness improvement and species diversity.
+        - factor: Multiplier for increasing mutation rates (default 1.1).
+        - decrease_factor: Multiplier for decreasing mutation rates (default 0.9).
+        - base_rate: Initial mutation rate for tapering (default 0.9).
+        - final_rate: Final mutation rate for tapering (default 0.1).
+        """
+        mutation_rates = [
+            "bias_mu_mutate_rate",
+            "bias_mu_replace_rate",
+            "bias_sigma_mutate_rate",
+            "bias_sigma_replace_rate",
+            "weight_mu_mutate_rate",
+            "weight_mu_replace_rate",
+            "weight_sigma_mutate_rate",
+            "weight_sigma_replace_rate",
+            "response_mu_mutate_rate",
+            "response_mu_replace_rate",
+            "response_sigma_mutate_rate",
+            "response_sigma_replace_rate",
+            "node_add_prob",
+            "node_delete_prob",
+            "conn_add_prob",
+            "conn_delete_prob",
+        ]
+
+        # Compute fitness improvement
+        if self.previous_best_genome is not None:
+            fitness_improvement = max(0, self.best_genome.fitness - self.previous_best_genome.fitness)
+        else:
+            fitness_improvement = 0  # No improvement in the first generation
+
+        species_count = len(self.species.species)
+
+        max_generations = max_gens if max_gens else 25
+        progress = self.generation / max_generations
+
+        for rate in mutation_rates:
+            current_rate = getattr(self.config.genome_config, rate, None)
+            if current_rate is not None:
+                if fitness_improvement < 0.02 and self.generation > 5:  # If fitness is stagnating
+                    new_rate = min(current_rate * factor, 1.0)  # Increase mutation (cap at 1.0)
+                elif fitness_improvement > 0.05:  # If fitness is steadily improving
+                    new_rate = max(current_rate * decrease_factor, 0.01)  # Decrease mutation (floor at 0.01)
+                else:
+                    # Use tapered mutation rate if no significant fitness change
+                    taper_rate = base_rate + progress * (final_rate - base_rate)
+                    new_rate = max(current_rate, taper_rate)  # Ensure no reduction below taper_rate
+
+                setattr(self.config.genome_config, rate, new_rate)  # Update mutation rate
+
+        # Log the mutation rate adjustment for debugging
+        print(
+            f"Generation {self.generation}: Adjusted mutation rates based on fitness improvement "
+            f"({fitness_improvement:.4f}) and species count ({species_count})."
+        )
+        adjusted_rates = {rate: getattr(self.config.genome_config, rate) for rate in mutation_rates}
+        print(f"Generation {self.generation}: Mutation rates: {adjusted_rates}")
+
 
     def set_stagnation_limit(self, new_limit):
         """
@@ -82,7 +160,7 @@ class Population(object):
         print(f"Set stagnation limit to {new_limit}")
 
 
-    def run(self, fitness_function, n=None, neat_iteration="NoneSet", comm=None):
+    def run(self, fitness_function, n=None, neat_iteration="NoneSet", comm=None, max_gens=None):
         rank = comm.Get_rank()
         size = comm.Get_size()
 
@@ -111,14 +189,15 @@ class Population(object):
 
             # Check for dynamic stagnation adjustment
             if rank == 0:  # Only the main rank handles this adjustment
-                if self.generation in [11, 16]:
+                current_stagnation = self.config.stagnation_config.max_stagnation
+                if self.generation % 5 == 0 and self.generation != 0:  # Adjust every 5 generations instead of waiting too long
                     current_stagnation = self.config.stagnation_config.max_stagnation
-                    if current_stagnation == 10:
-                        self.config.stagnation_config.max_stagnation -= 2
-                    elif current_stagnation == 8:
-                        self.config.stagnation_config.max_stagnation -= 2
-                    elif current_stagnation <= 6:
-                        self.config.stagnation_config.max_stagnation -= 1
+                    print(f"Generation {self.generation}: Adjusting mutation rates.")
+                    self.adjust_mutation_rates(max_gens=max_gens)
+                    if current_stagnation > 6:
+                        self.config.stagnation_config.max_stagnation -= 1  # Gradual decay
+                    elif current_stagnation > 3:
+                        self.config.stagnation_config.max_stagnation -= 0.5  # Slower decay when stagnation is low
 
                     print(f"Generation {self.generation}: Adjusted stagnation to {self.config.stagnation_config.max_stagnation}")
 
@@ -148,6 +227,7 @@ class Population(object):
                     "species_count": len(self.species.species),
                     "species_details": [],
                     "best_genome": None, 
+                    "previous_best_genome": None,
                     "compatibility_thres": self.config.species_set_config.compatibility_threshold,
                     "stagnation_limit": self.config.stagnation_config.max_stagnation
                 }
@@ -201,6 +281,13 @@ class Population(object):
                         "size": best.size()
                     }
 
+                if self.previous_best_genome is not None:
+                    generation_data["previous_best_genome"] = {
+                        "key": self.previous_best_genome.key,
+                        "fitness": self.previous_best_genome.fitness,
+                        "size": self.previous_best_genome.size(),
+                    }
+
                 # Append generation data
                 evolution_data["generations"].append(generation_data)
 
@@ -212,6 +299,7 @@ class Population(object):
                 if self.best_genome is None:
                     self.best_genome = best
                 elif best.fitness > self.best_genome.fitness:
+                    self.previous_best_genome = self.best_genome
                     self.best_genome = best
 
 
@@ -271,7 +359,7 @@ class Population(object):
                 self.reporters.found_solution(self.config, self.generation, self.best_genome)
 
             # Save the evolution data to a JSON file
-            with open(f"124_prod_evolution_generation_data_{neat_iteration}.json", "w") as json_file:
+            with open(f"test2_prod_evolution_generation_data_{neat_iteration}.json", "w") as json_file:
                 json.dump(evolution_data, json_file, indent=4)
 
         # Broadcast the best genome to all ranks

@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+import math
 
 def compute_attention(
     input_matrix, 
@@ -60,6 +61,10 @@ def compute_attention(
 
     # Compute attention scores over all entries
     attention_scores = torch.matmul(query, keys.transpose(0, 1))
+
+    # ***** SCALED DOT-PRODUCT ATTENTION ADDED HERE *****
+    d_k = keys.size(-1)  # dimensionality of the key vectors
+    attention_scores = attention_scores / math.sqrt(d_k)
 
     # Apply attention mask
     attention_mask = torch.ones(attention_scores.size(), device=device)

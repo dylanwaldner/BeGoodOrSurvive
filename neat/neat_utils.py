@@ -5,10 +5,15 @@ def adjust_rates_proportional(config, neat_iteration, total_iterations, initial_
     """
     Adjust rates proportionally based on the initial values, ensuring no compounding errors.
     """
+    print(initial_rates)
     for rate_name in initial_rates:
+        print(rate_name, type(rate_name))
         initial_rate = initial_rates[rate_name]
+        print(initial_rate)
         final_rate = final_rates[rate_name]
+        print(final_rate)
         delta_rate = (initial_rate - final_rate) / total_iterations
+        print(delta_rate)
         new_rate = max(initial_rate - neat_iteration * delta_rate, final_rate)
 
         # Update the configuration (directly modifies the internal state)
@@ -18,6 +23,7 @@ def adjust_rates_proportional(config, neat_iteration, total_iterations, initial_
     return config
 
 def save_evolution_results(results, tradeoffs, neat_iteration, file_path_template="124_prod_evolution_results_iter_{gen}.json"):
+    file_path=f"test2_prod_evolution_results_iter_{neat_iteration}.json"
     # Convert objects to JSON-compatible formats
     def convert(obj):
         if isinstance(obj, torch.Tensor):
@@ -40,9 +46,6 @@ def save_evolution_results(results, tradeoffs, neat_iteration, file_path_templat
     }
 
     results_serializable = convert(complete_results)
-
-    # Format the filename with the generation
-    file_path = file_path_template.format(gen=neat_iteration)
 
     print("SAVE EVOLUTION RESULTS FILE PATH: ", file_path)
 

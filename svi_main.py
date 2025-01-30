@@ -72,7 +72,7 @@ if __name__ == "__main__":
         max_tokens = 10240
         temperature = 1.2
         top_p = 0.95
-        danger = 2
+        danger = 3
 
         pyro.enable_validation(False)
 

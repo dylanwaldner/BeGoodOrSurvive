@@ -59,7 +59,7 @@ def main_loop_baseline(max_tokens, temperature, top_p, danger, shared_history, b
         summary = {
             "game_number": None,
             "ground_truth_labels": [],
-            "ethical_scores": [],
+            "ground_truth_ethical_scores": [],
             "decision_loss_summary": {},
             "game_loss": "None",
             "game_danger": danger,
@@ -105,7 +105,7 @@ def main_loop_baseline(max_tokens, temperature, top_p, danger, shared_history, b
 
                 intro, choices = extract_choices_and_intro(storyteller_response)
 
-            storyteller_responses.append((loop_counter + 1, storyteller_response))
+            storyteller_responses.append((global_counter, storyteller_response))
 
 
             # Get ground truth labels
@@ -135,7 +135,7 @@ def main_loop_baseline(max_tokens, temperature, top_p, danger, shared_history, b
             choice_probabilities = parse_probabilities(agent_response) # Insert code for calling api to list out probabilities
             print(f"Choice Probabilities: {choice_probabilities}")
 
-            full_choice_probabilities.append((loop_counter + 1, choice_probabilities))
+            full_choice_probabilities.append((global_counter, choice_probabilities))
 
             choice_probabilities_tensor = torch.tensor(choice_probabilities, device=device, dtype=torch.float32)
 
@@ -144,7 +144,7 @@ def main_loop_baseline(max_tokens, temperature, top_p, danger, shared_history, b
             loss_fn = torch.nn.BCELoss()
             loss = loss_fn(choice_probabilities_tensor, ground_truth_tensor)
 
-            losses.append((loop_counter + 1, loss.item()))
+            losses.append((global_counter + 1, loss.item()))
 
             # Normalize probabilities to ensure they sum to 1
             normalized_probabilities = torch.softmax(choice_probabilities_tensor, dim=0)
@@ -152,15 +152,15 @@ def main_loop_baseline(max_tokens, temperature, top_p, danger, shared_history, b
             # Sample based on the normalized probabilities
             sampled_choice = torch.multinomial(normalized_probabilities, num_samples=1).item()
 
-            sampled_choices.append((loop_counter + 1, sampled_choice))
-            agent_choices.append((loop_counter + 1, choices[sampled_choice]))
+            sampled_choices.append((global_counter, sampled_choice))
+            agent_choices.append((global_counter, choices[sampled_choice]))
 
             print("Sampled choice:", sampled_choice)
 
             strong_agent_response = f"I choose {choices[sampled_choice]}"
 
             ethics_score = ethical_scores_list[sampled_choice]
-            ethics.append((loop_counter + 1, ethics_score))
+            ethics.append((global_counter, ethics_score))
 
             # Update the histories
             bnn_history = update_bnn_history(response=strong_agent_response, agent="Strong", bnn_history=bnn_history, max_length=max_tokens, temperature=temperature, top_p=top_p, ethics_score=ethics_score, global_counter=global_counter)
@@ -170,7 +170,7 @@ def main_loop_baseline(max_tokens, temperature, top_p, danger, shared_history, b
             # Calculate loop duration and add it to the decision details
             loop_end_time = time.time()
             loop_duration = loop_end_time - loop_start_time
-            loop_durations.append((loop_counter+1, loop_duration))
+            loop_durations.append((global_counter, loop_duration))
 
             did_agent_survive = ground_truth_labels[sampled_choice]
 
@@ -205,7 +205,7 @@ def main_loop_baseline(max_tokens, temperature, top_p, danger, shared_history, b
             "loop_durations": loop_durations,
             "storyteller_response": storyteller_responses,
             "strong_agent_choice": agent_choices,
-            "ethical_scores": ethics,
+            "decision_ethical_scores": ethics,
             "choice_index": sampled_choices,
             "choice_probabilities": full_choice_probabilities,
             "loss": losses
@@ -314,13 +314,6 @@ def generational_driver_baseline(votes, max_tokens, temperature, top_p, danger, 
                 # Restore generational data
                 generational_history = checkpoint['generational_history']
                 rounds_survived_history = checkpoint['rounds_survived_history']
-
-                # Restore NEAT-specific state
-                if checkpoint.get('neat_trainer_state'):
-                    neat_trainer.set_state(checkpoint['neat_trainer_state'])
-
-                # Restore Pyro parameter store
-                pyro.get_param_store().set_state(checkpoint['pyro_param_store'])
 
                 print(f"Resumed from generation {counter}")
 

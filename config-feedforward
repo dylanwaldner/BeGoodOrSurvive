@@ -2,7 +2,7 @@
 fitness_criterion     = max
 fitness_threshold     = 1.0
 # Varied parameter
-pop_size              = 160
+pop_size              = 128
 reset_on_extinction   = True
 
 [DefaultGenome]
@@ -73,7 +73,7 @@ conn_delete_prob        = 0.9
 
 # Number of inputs, outputs, and connections
 num_hidden              = 0
-num_inputs              = 1542
+num_inputs              = 384
 num_outputs             = 4
 initial_connection      = full
 
@@ -90,11 +90,11 @@ compatibility_threshold = 13.0
 
 [DefaultStagnation]
 species_fitness_func    = max
-max_stagnation          = 10
+max_stagnation          = 8
 species_elitism         = 2
 
 [DefaultReproduction]
-elitism                 = 1
+elitism                 = 2
 survival_threshold      = 0.2
 
 

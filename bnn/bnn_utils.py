@@ -6,7 +6,7 @@ from openai import OpenAI
 import pyro
 
 client = OpenAI()
-def update_bnn_history(response, agent, bnn_history, max_length, temperature, top_p, global_counter, ethics_score=0, death=False):
+def update_bnn_history(response, agent, bnn_history, max_length, temperature, top_p, global_counter, danger, ethics_score=0, death=False):
     """
     This function captures and stores information about a prompt-response interaction between an agent and the AI.
     It retrieves both the text embeddings and emotional scores for the prompt and response, appending this data to
@@ -86,6 +86,7 @@ def update_bnn_history(response, agent, bnn_history, max_length, temperature, to
         if death:
             if len(bnn_history) >= 1:
                 bnn_history[-1]["survived"] = 0
+                bnn_history[-2]["survived"] = 0
         else:
             environment_danger_score = emotion_rating(response, agent, max_length, 0.1, top_p)
             bnn_history.append({
@@ -95,7 +96,8 @@ def update_bnn_history(response, agent, bnn_history, max_length, temperature, to
                 "response_embedding": response_embedding,
                 "emotional_and_ethical_score": -1,
                 "environment_danger_score": environment_danger_score,
-                "survived": -1
+                "survived": -1, 
+                "difficulty": danger
             })
         #print("Response Embedding Length (Storyteller): ", len(response_embedding))
 

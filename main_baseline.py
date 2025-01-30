@@ -47,6 +47,7 @@ size = comm.Get_size()
 
 if __name__ == "__main__":
     start_time = time.time()
+    print("TEST")
     try:
         # Initialize configurations (if needed by all ranks)
         config_path = "config-feedforward"
@@ -85,7 +86,7 @@ if __name__ == "__main__":
         ethical_ground_truths = []
         gen_loss_history = []
         gen_ethical_history = []
-        num_gens = 10
+        num_gens = 90
         global_counter = 0
         result, gen_loss_history, gen_ethical_history, ethical_ground_truths, survival_ground_truths = generational_driver_baseline(
             votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history,

@@ -205,7 +205,9 @@ class DefaultReproduction(DefaultClassConfig):
                 gid = next(self.genome_indexer)
                 child = config.genome_type(gid)
                 child.configure_crossover(parent1, parent2, config.genome_config)
+
                 child.mutate(config.genome_config)
+
                 # TODO: if config.genome_config.feed_forward, no cycles should exist
                 new_population[gid] = child
                 self.ancestors[gid] = (parent1_id, parent2_id)
@@ -221,7 +223,9 @@ class DefaultReproduction(DefaultClassConfig):
                 gid = next(self.genome_indexer)
                 child = config.genome_type(gid)
                 child.configure_crossover(parent1, parent2, config.genome_config)
+
                 child.mutate(config.genome_config)
+
                 new_population[gid] = child
                 self.ancestors[gid] = (parent1_id, parent2_id)
 

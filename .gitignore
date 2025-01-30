@@ -26,3 +26,4 @@ __pycache__/
 dummy_profile.sh
 app.sh
 profile.sh
+make_json.py

@@ -127,7 +127,7 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
             summary["ethical_scores"].append({global_counter: ethical_scores_list})
 
             # Update the histories
-            bnn_history = update_bnn_history(response=storyteller_response, agent="Storyteller", bnn_history=bnn_history, max_length=max_tokens, temperature=temperature, top_p=top_p, global_counter=global_counter)
+            bnn_history = update_bnn_history(response=storyteller_response, agent="Storyteller", bnn_history=bnn_history, max_length=max_tokens, temperature=temperature, top_p=top_p, global_counter=global_counter, danger=danger)
 
             shared_history.append({"role": "assistant", "content": "storyteller: " + storyteller_response})
 
@@ -180,6 +180,7 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
             if did_agent_survive == 0:
                 if len(bnn_history) >= 1:
                     bnn_history[-1]["survived"] = 0
+                    bnn_history[-2]["survived"] = 0
                 print("GAME OVER")
                 print(f"Survived {loop_counter} Rounds")
                 break
@@ -204,9 +205,10 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
 
         # Track decision details
         decision_details = {
-            "loop_number": range(1, loop_counter + 2),
+            "loop_number": list(range(1, loop_counter + 2)),
             "storyteller_response": storyteller_responses,
             "strong_agent_choice": agent_choices,
+            "decision_ethical_scores": ethics,
             "choice_index": sampled_choices,
             "choice_probabilities": full_choice_probabilities,
             "loss": losses
@@ -399,7 +401,30 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
                     neat_trainer.set_state(checkpoint['neat_trainer_state'])
 
                 # Restore Pyro parameter store
-                pyro.get_param_store().set_state(checkpoint['pyro_param_store'])
+                #pyro.get_param_store().set_state(checkpoint['pyro_param_store'])
+
+                # Restore model state (Winner genome checkpoint)
+                winner_genome_checkpoint_path = f"124_prod_winner_genome_model_iteration_3.pth"
+                if os.path.exists(winner_genome_checkpoint_path):
+                    print(f"Loading winner genome checkpoint from {winner_genome_checkpoint_path}...")
+                    winner_genome_checkpoint = torch.load(winner_genome_checkpoint_path, map_location=torch.device("cpu"))
+
+                    # Restore the winner genome
+                    winner_genome = winner_genome_checkpoint['genome']
+
+                    # Restore attention layers
+                    attention_layers = winner_genome_checkpoint['attention_layers']
+
+                    # Restore configuration
+                    config = winner_genome_checkpoint['config']
+
+                    # Reconstruct the BNN using the winner genome
+                    strong_bnn = BayesianNN(winner_genome, config, attention_layers=attention_layers)
+                    strong_bnn.load_state_dict(winner_genome_checkpoint['model_state_dict'])
+                    print("Winner genome and BNN successfully loaded.")
+                else:
+                    print(f"Winner genome checkpoint not found at {winner_genome_checkpoint_path}. Using previous model state.")
+                    strong_bnn.load_state_dict(checkpoint['model_state_dict'])
 
                 print(f"Resumed from generation {counter}")
 
@@ -471,7 +496,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
         if counter in [30, 60, 90]:
             print("NEAT TIME")
             # After an SVI step
-            if rank == 0 and neat:
+            if rank == 0:
                 neat_iteration = counter // (num_gens // total_iterations)
                 optimized_params_svi = strong_bnn.get_optimized_parameters()  # Retrieves optimized params as a dictionary
                 #print("SVI Optimized Parameters:", optimized_params_svi)
@@ -629,6 +654,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
                 # Append result for the current game directly in the loop
                 result_copy = result.copy()  # Make a copy to avoid overwriting
                 result_copy["test_game"] = test_game  # Add test game number for clarity
+                result_copy["game_number"] = test_game + 90
                 overall_summary["detailed_gen_data"].append(result_copy)
                 generational_history.append(result_copy)
 
@@ -667,6 +693,38 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
             "average_ethical_score_per_gen": average_ethical_score_per_gen,
             "survival_counts_per_gen": survival_counts_per_gen
         }
+        if rank == 0:
+            # Save checkpoint
+            torch.save({
+                # Core loop variables
+                'counter': counter + 30,
+                'global_counter': global_counter,
+                'last_step': last_step,
+                'danger': danger,
+
+                # Model-related state
+                'model_state_dict': strong_bnn.state_dict(),
+                'bnn_history': bnn_history,
+                'ground_truth_label_list': ground_truth_label_list,
+                'ethical_ground_truths': ethical_ground_truths,
+                'gen_loss_history': gen_loss_history,
+                'gen_ethical_history': gen_ethical_history,
+
+                # Summary and configuration
+                'overall_summary': overall_summary,
+                'config': config,
+
+                # All generational history for post hoc analysis
+                'generational_history': generational_history,
+                'rounds_survived_history': rounds_survived_history,
+
+                # NEAT-specific state (if applicable)
+                'neat_trainer_state': neat_trainer.get_state() if hasattr(neat_trainer, 'get_state') else None,
+
+                # Pyro parameter store (to resume SVI state)
+                #'pyro_param_store': pyro.get_param_store().get_state()
+                }, "checkpoint.pth")
+            print(f"Checkpoint saved at generation {counter}")
 
         def check_for_tensors(obj, path="root"):
             if isinstance(obj, dict):
@@ -696,7 +754,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
         try:
             with open("124_prod_experiment_summary.json", "w") as summary_file:
                 json.dump(overall_summary_serializable, summary_file, indent=4)
-            print(f"Experiment summary saved to '121_prod_experiment_summary.json'")
+            print(f"Experiment summary saved to '124_prod_experiment_summary.json'")
         except Exception as e:
             print(f"Error saving experiment summary: {e}")
 

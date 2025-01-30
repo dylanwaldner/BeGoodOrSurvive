@@ -46,6 +46,7 @@ size = comm.Get_size()
 
 if __name__ == "__main__":
     start_time = time.time()
+    print("is it using the updated version?")
     try:
         # Initialize configurations (if needed by all ranks)
         config_path = "config-feedforward"

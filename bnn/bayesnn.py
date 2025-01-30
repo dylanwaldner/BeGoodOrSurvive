@@ -31,13 +31,14 @@ class BayesianNN(nn.Module):
         self.connections = {}  # To store connections with their properties
         self.nodes = {}        # To store node information if needed
 
-        self.input_size = 1542 # Now variable
+        self.input_size = 1541 # Now variable
+        self.d_model = 384
 
         self.dropout = nn.Dropout(p=0.1)
 
-        self.query_proj = nn.Linear(self.input_size, self.input_size).to(device)
-        self.key_proj = nn.Linear(self.input_size, self.input_size).to(device)
-        self.value_proj = nn.Linear(self.input_size, self.input_size).to(device)
+        self.query_proj = nn.Linear(self.input_size, self.d_model).to(device)
+        self.key_proj = nn.Linear(self.input_size, self.d_model).to(device)
+        self.value_proj = nn.Linear(self.input_size, self.d_model).to(device)
 
         self.learning_rate = lr
 
@@ -264,7 +265,6 @@ class BayesianNN(nn.Module):
                 torch.tensor([dictionary["emotional_and_ethical_score"]], device=device),
                 torch.tensor([dictionary["environment_danger_score"]], device=device),
                 torch.tensor([dictionary["survived"]], device=device),
-                torch.tensor([0.0], device=device)  # Placeholder for relevance score
             ])
 
             rows.append(row)
@@ -279,13 +279,6 @@ class BayesianNN(nn.Module):
             if self.input_matrix.device != device:
                 self.input_matrix = self.input_matrix.to(device)  # Move to target device
             self.input_matrix = torch.cat([self.input_matrix, new_rows], dim=0)  # Append new_rows
-
-        # Recalculate relevance scores for previously stored rows
-        for i in range(len(self.input_matrix)):
-            past_embedding = self.input_matrix[i][2:-4]  # Adjust slice indices as needed
-            relevance_score = torch.norm(current_embedding - past_embedding)
-            relevance_score = 1 / (1 + relevance_score)  # Normalize relevance
-            self.input_matrix[i][-1] = relevance_score  # Update the relevance score
 
         self.last_update_index = current_index + 1
         self.input_matrix = self.input_matrix.clone().detach().float().to(device)
