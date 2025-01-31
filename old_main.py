@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 import pyro
 import torch.multiprocessing as mp
 
-from loops_test1 import main_loop, generational_driver
+from loops import main_loop, generational_driver
 from utils.plotting import plot_loss_and_survival, plot_survival_and_ethics, plot_loss_and_ethics
 from utils.utils_logging import save_experiment_results
 from neat.neat_evolution import NeatEvolution

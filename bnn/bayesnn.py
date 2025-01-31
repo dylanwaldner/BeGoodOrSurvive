@@ -5,6 +5,7 @@ import subprocess
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim as optim
 import pyro
 import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO, TraceGraph_ELBO
@@ -40,6 +41,13 @@ class BayesianNN(nn.Module):
         self.key_proj = nn.Linear(self.input_size, self.d_model).to(device)
         self.value_proj = nn.Linear(self.input_size, self.d_model).to(device)
 
+        # Ensure all attention layers are on the correct device
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        self.query_proj.to(device)
+        self.key_proj.to(device)
+        self.value_proj.to(device)
+
         self.learning_rate = lr
 
         self.optimizer = Adam({"lr": self.learning_rate})
@@ -63,6 +71,23 @@ class BayesianNN(nn.Module):
         # Build the network based on the genome
         self.build_network(config)
 
+        for param in self.parameters():
+            param.requires_grad = False  # Freeze all parameters
+
+        for param in self.query_proj.parameters():
+            param.requires_grad = True
+        for param in self.key_proj.parameters():
+            param.requires_grad = True
+        for param in self.value_proj.parameters():
+            param.requires_grad = True
+
+        self.attention_optimizer = optim.Adam(
+            [
+                {"params": self.query_proj.parameters(), "lr": self.learning_rate},
+                {"params": self.key_proj.parameters(), "lr": self.learning_rate},
+                {"params": self.value_proj.parameters(), "lr": self.learning_rate},
+            ]
+        )
         # Initialize node activation functions
         self.node_activation_funcs = {}
 
@@ -966,10 +991,12 @@ class BayesianNN(nn.Module):
             print(f"Error retrieving GPU usage: {e}")
             return None
 
-    def compute_bce_loss(self, bnn_history, ground_truth_labels, device=None):
-        #print("device loss: ", device)
-        # Ensure the model is in evaluation mode
-        self.eval()
+    def compute_bce_loss(self, bnn_history, ground_truth_labels, device=None, training=False):
+        # Switch between training and evaluation mode
+        if training:
+            self.train()
+        else:
+            self.eval()
 
         # Update bnn_history as a class attribute
         if len(bnn_history) > self.last_update_index:
@@ -987,22 +1014,19 @@ class BayesianNN(nn.Module):
 
         y_data = ground_truth_labels.to(device)
 
-        # Print for debugging purposes (optional)
+        # Perform forward pass (Compute logits)
+        logits = self.forward_bce(x_data, device=device)
+        logits = logits.squeeze()
 
-        # Perform forward pass to compute logits
-        with torch.no_grad():
-            logits = self.forward_bce(x_data, device=device)
+        # Apply sigmoid activation to get probabilities
+        probabilities = torch.sigmoid(logits)
 
-            logits = logits.squeeze()
-
-            # Apply sigmoid activation to get probabilities
-            probabilities = torch.sigmoid(logits)
-
-            # Compute BCE loss
-            loss_fn = torch.nn.BCELoss()
-            loss = loss_fn(probabilities, y_data)
+        # Compute BCE loss
+        loss_fn = torch.nn.BCELoss()
+        loss = loss_fn(probabilities, y_data)
 
         # Reset the current index after computation
         self.current_index = None
 
-        return loss.item(), probabilities
+        return loss, probabilities  # Keep loss as a tensor
+

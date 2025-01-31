@@ -2,6 +2,8 @@ from neat import NeatEvolution, adjust_rates_proportional
 from emotion_rate import emotion_rating, ethical_scores, ground_truth
 from bnn.bayesnn import BayesianNN
 import pyro
+import bnn_neat
+from bnn_neat.genome import DefaultGenome
 
 from storyteller import respond_storyteller
 
@@ -223,21 +225,27 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
                     if param.grad is not None:
                         param.grad = param.grad.to(device).float()  # Move gradients to the same device
 
-            # Move optimizer internal state (momentum buffers, etc.) to correct device
-            for state in strong_bnn.attention_optimizer.state.values():
-                for key, value in state.items():
-                    if isinstance(value, torch.Tensor):
-                        state[key] = value.to(device)  # Move internal optimizer states
             try:
-                strong_bnn.attention_optimizer.step()  # Update only attention layers
-            except Exception as e:
-                print("ERROR IN OPTIMIZER STEP")
-                for param_group in strong_bnn.attention_optimizer.param_groups:
+                strong_bnn.attention_optimizer.step()
+            except RuntimeError as e:
+                print("🚨 Optimizer Step Failed! Debugging Tensor Devices & Dtypes 🚨")
+                
+                # Print optimizer state tensors
+                for i, param_group in enumerate(strong_bnn.attention_optimizer.param_groups):
+                    print(f"🔹 Param Group {i}")
                     for param in param_group['params']:
-                        print(f"Param: {param.shape}, Device: {param.device}, Dtype: {param.dtype}")
+                        print(f"    Param Shape: {param.shape}, Device: {param.device}, Dtype: {param.dtype}")
                         if param.grad is not None:
-                            print(f"    Grad Device: {param.grad.device}, Grad Dtype: {param.grad.dtype}")
-                raise e
+                            print(f"    Grad Shape: {param.grad.shape}, Grad Device: {param.grad.device}, Grad Dtype: {param.grad.dtype}")
+                
+                # Check optimizer state tensors (this is where the issue likely is!)
+                for i, state in strong_bnn.attention_optimizer.state.items():
+                    for key, value in state.items():
+                        if isinstance(value, torch.Tensor):  # Only check tensor states
+                            print(f"⚠️ Optimizer State Tensor: {key}, Shape: {value.shape}, Device: {value.device}, Dtype: {value.dtype}")
+
+                raise e  # Re-raise the error so we can still see the full traceback
+
 
             full_choice_probabilities.append(choice_probabilities)
 
@@ -296,7 +304,7 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
             sys.stdout.flush()
             torch.cuda.empty_cache()
 
-            if global_counter in [500, 1000, 1500, 1800]:
+            if global_counter in [30, 60, 90, 100]:
                 break
 
             if not train and (game_difficulty_count >= samples_per_danger or loop_counter + game_difficulty_count >= samples_per_danger):
@@ -421,9 +429,9 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
     #total_samples = 750
     #train_samples = 600
     #test_samples = 150
-    total_samples = 1800
-    train_samples = 1500
-    test_samples = 300
+    total_samples = 100
+    train_samples = 90
+    test_samples = 10
 
     if rank == 0:
         # Overall summary to accumulate results
@@ -451,7 +459,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
 
     if rank == 0:
         checkpoint_path = "checkpointdontuse.pth"
-        checkpoint_interval = 100  # Save checkpoint every 10 generations
+        checkpoint_interval = 10  # Save checkpoint every 10 generations
 
         # Initialize variables
         if rank == 0 and os.path.exists(checkpoint_path):
@@ -483,12 +491,8 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
                 generational_history = checkpoint['generational_history']
                 rounds_survived_history = checkpoint['rounds_survived_history']
 
-                # Restore NEAT-specific state
-                if checkpoint.get('neat_trainer_state'):
-                    neat_trainer.set_state(checkpoint['neat_trainer_state'])
-
                 # Restore Pyro parameter store
-                #pyro.get_param_store().set_state(checkpoint['pyro_param_store'])
+                pyro.get_param_store().set_state(checkpoint['pyro_param_store'])
 
                 # Restore model state (Winner genome checkpoint)
                 winner_genome_checkpoint_path = f"_prod_winner_genome_model_iteration_3.pth"
@@ -496,14 +500,15 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
                     print(f"Loading winner genome checkpoint from {winner_genome_checkpoint_path}...")
                     winner_genome_checkpoint = torch.load(winner_genome_checkpoint_path, map_location=torch.device("cpu"))
 
-                    # Restore the winner genome
-                    winner_genome = winner_genome_checkpoint['genome']
-
                     # Restore attention layers
                     attention_layers = winner_genome_checkpoint['attention_layers']
 
                     # Restore configuration
                     config = winner_genome_checkpoint['config']
+
+                    genome_id = 0  # Or use a different ID for each rank if needed
+                    genome = DefaultGenome(genome_id)
+                    genome.configure_new(config.genome_config)
 
                     # Reconstruct the BNN using the winner genome
                     strong_bnn = BayesianNN(winner_genome, config, attention_layers=attention_layers)
@@ -554,7 +559,8 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
             overall_summary["rounds_survived_history"][f"Game {counter}"] = loop_counter
 
 
-        if counter % 100000 == 0 and rank == 0:
+        #if counter % 100000 == 0 and rank == 0:
+        if global_counter in [30, 60, 90] and rank == 0:
             print("SVI Start")
             batch_indices = range(last_step, global_counter)
 
@@ -578,96 +584,10 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
             summary["game_loss"] = loss
             last_step = global_counter + 1
 
-
-        #if global_counter in [100, 300, 600]:
-        if global_counter in [500, 1000, 1500]:    
-            print("NEAT TIME")
-            # After an SVI step
             if rank == 0:
-                # Determine NEAT iteration explicitly based on global_counter
-                if global_counter == 500:
-                    neat_iteration = 1
-                elif global_counter == 1000:
-                    neat_iteration = 2
-                elif global_counter == 1500:
-                    neat_iteration = 3
-                else:
-                    neat_iteration = None  # No NEAT step outside of these milestones
-
-                print("NEAT Iteration: ", neat_iteration)
-
-                optimized_params_svi = strong_bnn.get_optimized_parameters()  # Retrieves optimized params as a dictionary
-                #print("SVI Optimized Parameters:", optimized_params_svi)
-
-                print("Strong BNN query_proj weight shape before saving:", strong_bnn.query_proj.weight.shape)
-
-
-                # Save the attention layers only when preparing for NEAT
-                attention_layers = {
-                    'query_proj': strong_bnn.query_proj.state_dict(),
-                    'key_proj': strong_bnn.key_proj.state_dict(),
-                    'value_proj': strong_bnn.value_proj.state_dict()
-                }
-
-            else:
-                neat_iteration = None
-                optimized_params_svi = None
-                attention_layers = None
-
-            # Share rank-0 data with all ranks
-            neat_iteration = comm.bcast(neat_iteration, root=0)
-            print(f"Neat iteration before neat trainer: {neat_iteration}")
-            optimized_params_svi = comm.bcast(optimized_params_svi, root=0)
-            attention_layers = comm.bcast(attention_layers, root=0)
-
-            comm.Barrier()  # After initializing NEAT trainer
-
-            neat_trainer = NeatEvolution(config, config_path, strong_bnn, neat_iteration=neat_iteration, comm=comm) #also edit to accept strong_bnn as an argument
-
-
-            winner_genome = neat_trainer.run_neat_step(strong_bnn, bnn_history, ground_truth_label_list, ethical_ground_truths, comm)
-
-            comm.Barrier()  # After initializing NEAT trainer
-
-            if rank == 0:
-                print("Clearing GPU cache after NEAT...")
-
-                torch.cuda.empty_cache()
-
-                # Collect Python garbage
-                import gc
-                gc.collect()
-                pyro.clear_param_store()
-
-
-                strong_bnn = BayesianNN(winner_genome, config, attention_layers=attention_layers)
-
-                # Create a snapshot of the current configuration
-                config_snapshot = {
-                    "generation": counter,
-                    "config_settings": config.genome_config.to_dict()  # Make a copy to avoid referencing mutable objects
-                }
-                # Append to the overall summary's generational history
-                overall_summary["config_history"][f"neat_iteration_{neat_iteration}"] = config_snapshot
-                overall_summary["lr_history"][f"neat_iteration_{neat_iteration}"] = strong_bnn.learning_rate
-
-                architecture_string = strong_bnn.print_network_architecture()
-                iteration_save_path = f"test2_prod_best_architecture_iteration_{neat_iteration}.txt"
-                with open(iteration_save_path, 'w') as file:
-                    file.write(architecture_string)
-
-                # Save the population tradeoffs for the current NEAT iteration
-                tradeoff_save_path = f'test2_prod_population_tradeoffs_iteration_{neat_iteration}.json'
-                neat_trainer.population_tradeoffs = make_population_tradeoffs_serializable(neat_trainer.population_tradeoffs)
-
-                with open(tradeoff_save_path, 'w') as f:
-                    json.dump(neat_trainer.population_tradeoffs, f, indent=4)
-                print(f"Population tradeoffs saved to '{tradeoff_save_path}'")
-
                 model_save_path = f"test2_prod_winner_genome_model_iteration_{neat_iteration}.pth"
                 torch.save({
                     'model_state_dict': strong_bnn.state_dict(),
-                    'genome': winner_genome,  # Save genome if useful for future use
                     'attention_layers': attention_layers,
                     'config': config  # Save configuration for reconstruction if needed
                 }, model_save_path)
@@ -689,7 +609,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
             gc.collect()
 
         #if rank == 0 and (counter % checkpoint_interval == 0 or global_counter in [100, 300, 600]):
-        if rank == 0 and (counter % checkpoint_interval == 0 or global_counter in [500, 1000, 1500]):
+        if rank == 0 and (counter % checkpoint_interval == 0 or global_counter in [300, 600, 900]):
             # Create a unique filename using date and time
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             checkpoint_filename = f"checkpoint_{timestamp}.pth"
@@ -718,11 +638,8 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
                 'generational_history': generational_history,
                 'rounds_survived_history': rounds_survived_history,
 
-                # NEAT-specific state (if applicable)
-                'neat_trainer_state': neat_trainer.get_state() if hasattr(neat_trainer, 'get_state') else None,
-
                 # Pyro parameter store (to resume SVI state)
-                #'pyro_param_store': pyro.get_param_store().get_state()
+                'pyro_param_store': pyro.get_param_store().get_state()
                 }, checkpoint_filename)
             print(f"Checkpoint saved to {checkpoint_filename} at generation {global_counter}")
 
@@ -737,7 +654,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
         danger = 1  # Start danger level at 1
         test_sample = 0
         danger_counter = {}  # Track danger level counts
-        samples_per_danger = 30  # Fixed samples per danger level
+        samples_per_danger = 1  # Fixed samples per danger level
 
         while global_counter < total_samples:
             # Stop if we've completed all required samples

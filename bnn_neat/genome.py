@@ -276,6 +276,9 @@ class DefaultGenome(object):
         # Fitness results.
         self.fitness = None
         self.fitness_history = []
+        self.parent_fitness = None
+
+        self.parents = []  # Stores genome IDs of parents
 
         # Add histories for decisions and ethical scores
         self.decision_history = []
@@ -457,6 +460,10 @@ class DefaultGenome(object):
             parent1, parent2 = genome1, genome2
         else:
             parent1, parent2 = genome2, genome1
+
+        self.parents = [parent1.key, parent2.key]
+
+        self.parent_fitness = parent1.fitness if parent1.fitness is not None else parent2.fitness
 
         # Inherit connection genes
         for key, cg1 in parent1.connections.items():

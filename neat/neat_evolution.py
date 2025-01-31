@@ -360,6 +360,7 @@ class NeatEvolution:
 
     def run_neat_step(self, strong_bnn, bnn_history, ground_truth_labels, ethical_ground_truths, comm):
         print(f"Rank {self.rank}: Starting NEAT run step", flush=True)
+
         self.max_generations = 25
         # Broadcast the population to all ranks
         if self.rank == 0:
@@ -411,6 +412,8 @@ class NeatEvolution:
         rank = self.rank
         size = self.size
 
+
+
         # Initialize evolution results if not already defined
         if not hasattr(self, "evolution_results"):
             self.evolution_results = {
@@ -458,11 +461,20 @@ class NeatEvolution:
                     assigned_genomes.append(genomes_list[start_idx:end_idx])
                     start_idx = end_idx
 
+                for worker_rank, worker_genomes in enumerate(assigned_genomes):
+                    print(f"Rank {worker_rank}: Assigned {len(worker_genomes)} genomes")
+                    if len(worker_genomes) == 0:
+                        print(f"⚠️ Warning: Rank {worker_rank} received 0 genomes!")
+
                 # 2) Now assign devices once
                 for w_rank, worker_genomes in enumerate(assigned_genomes):
                     assigned_device = self.gpu_assignments[w_rank]
                     for genome_id, genome in worker_genomes:
                         genome.device = assigned_device
+
+                # ✅ Check if Rank 0 is getting assigned genomes properly
+                if len(assigned_genomes[0]) == 0:
+                    print(f"⚠️ Warning: Rank 0 was assigned an empty genome list!")
 
                 # Send genomes to worker ranks
                 for worker_rank in range(1, size):
@@ -487,34 +499,22 @@ class NeatEvolution:
 
             genome_ids = [genome_id for genome_id, _ in local_genomes]
 
-            # Step 1: Assign `evaluation_window` before evaluation
-            if k > 5:
-                # Sort local genomes based on fitness
-                # Filter out genomes with None fitness before sorting
-
-                # Sort the remaining valid genomes
-                sorted_genomes = sorted(local_genomes, key=lambda x: x[1].fitness, reverse=True)
-
-                top_percentage = 0.2  # Top 20%
-                top_count = max(1, int(len(sorted_genomes) * top_percentage))
-                top_genome_ids = {g[0] for g in sorted_genomes[:top_count]}  # Set of top genome IDs
-            else:
-                top_genome_ids = set()
-
-            # Update `evaluation_window` BEFORE evaluation
             for genome_id, genome in local_genomes:
-                if k <= 5:  # Early exploration phase
+                if genome.fitness is None:
+                    print(f"⚠️ Warning: Genome {genome_id} has fitness=None in Generation {k}")
+                    genome.fitness = float('-inf')  # Assign a safe default value
+
+                if genome.evaluation_window is None or genome.evaluation_window < 24:
+                    print(f"⚠️ Warning: Genome {genome_id} had invalid evaluation_window={genome.evaluation_window}. Setting to 24.")
                     genome.evaluation_window = 24
-                elif 5 < k <= 15:  # Intermediate phase
-                    if genome_id in top_genome_ids:
-                        genome.evaluation_window = 42
-                    else:
-                        genome.evaluation_window = 30
-                elif k > 15:  # Later phase with more refined genomes
-                    if genome_id in top_genome_ids:
-                        genome.evaluation_window = 90
-                    else:
-                        genome.evaluation_window = 36
+
+                if genome.parents:
+                    parent_eval_windows = [genomes[parent_id].evaluation_window for parent_id in genome.parents if parent_id in genomes and genomes[parent_id].evaluation_window is not None]
+
+                    if parent_eval_windows:
+                        genome.evaluation_window = max(parent_eval_windows, 24)  # ✅ Ensure it's at least 24
+                        print(f"🧬 Genome {genome_id} inherited evaluation_window={genome.evaluation_window} from parents {genome.parents}")
+
 
             # Step 2: Evaluate genomes locally
             local_results = self.evaluate_genomes(
@@ -543,7 +543,11 @@ class NeatEvolution:
                         updated_genome = updated_population[genome_id]
 
                         # Update the original genome's attributes
-                        genome.fitness = updated_genome.fitness
+                        if updated_genome.fitness is not None and updated_genome.fitness > float('-inf'):
+                            genome.fitness = updated_genome.fitness
+                        else:
+                            print(f"⚠️ Warning: Genome {genome_id} received None fitness in Gen {k}")
+
                         genome.evaluation_window = updated_genome.evaluation_window
                         genome.decision_history = updated_genome.decision_history
                         genome.ethical_score_history = updated_genome.ethical_score_history
@@ -555,6 +559,52 @@ class NeatEvolution:
                 results_data = pickle.dumps(local_results)
                 comm.send(results_data, dest=0, tag=22)
                 updated_population = None
+
+             # Step 1: Assign `evaluation_window` before evaluation
+            # ✅ Step 1: Ensure every genome has fitness after rank synchronization
+            if k > 5:
+                # ✅ Use parent fitness as a fallback for new genomes
+                for genome_id, genome in genomes:
+                    if genome.fitness is None:
+                        # ✅ Get the max fitness from parents dynamically
+                        parent_fitness_values = [genomes[parent_id].fitness for parent_id in genome.parents if parent_id in genomes and genomes[parent_id].fitness is not None]
+                        
+                        # ✅ Use the best parent fitness, or default to -inf if none available
+                        genome.fitness = max(parent_fitness_values) if parent_fitness_values else float('-inf')
+
+                # ✅ Create a list of genomes that have a valid fitness
+                valid_genomes = [(gid, g) for gid, g in genomes if g.fitness is not None and g.fitness > float('-inf')]
+
+                # ✅ Handle edge case: No valid genomes
+                if len(valid_genomes) == 0:
+                    print(f"⚠️ Warning: No valid genomes with fitness in Generation {k}. Defaulting to safe values.")
+                    sorted_genomes = []
+                else:
+                    # ✅ Sort genomes globally by fitness
+                    sorted_genomes = sorted(valid_genomes, key=lambda x: x[1].fitness, reverse=True)
+
+                # ✅ Select the top genomes dynamically based on global sorting
+                top_percentage = 0.2  # Top 20%
+                top_count = max(1, int(len(sorted_genomes) * top_percentage))
+                top_genome_ids = {g[0] for g in sorted_genomes[:top_count]}  # Set of top genome IDs
+
+            else:
+                top_genome_ids = set()
+
+            # ✅ Step 2: Update `evaluation_window` AFTER fitness has been updated globally
+            for genome_id, genome in genomes:
+                # ✅ If the genome is new and has parents, inherit the max eval window from parents
+                if genome.evaluation_window == 5 and genome.parents:
+                    parent_eval_windows = [evaluation_windows.get(parent_id, 24) for parent_id in genome.parents]
+                    genome.evaluation_window = max(parent_eval_windows)
+                    print(f"🧬 Genome {genome_id} inherited evaluation_window={genome.evaluation_window} from parents {genome.parents}")
+
+                elif k <= 5:  # Early exploration phase
+                    genome.evaluation_window = 24
+                elif 5 < k <= 15:  # Intermediate phase
+                    genome.evaluation_window = 42 if genome_id in top_genome_ids else 30
+                elif k > 15:  # Later phase with more refined genomes
+                    genome.evaluation_window = 90 if genome_id in top_genome_ids else 36
 
             comm.Barrier()
 
@@ -654,7 +704,14 @@ class NeatEvolution:
         valid_results = []  # Only store genomes that succeed
 
         for genome_id, genome in genomes:
+            print(f"🔍 Pre-evaluation - Genome {genome_id} fitness: {genome.fitness}")
+
+
+
+        for genome_id, genome in genomes:
             try:
+                genome.fitness = float('-inf')  # Ensure it never remains None
+
                 if genome.device is None:
                     raise ValueError(f"Genome {genome_id} does not have a valid device: {genome.device}")
 
@@ -665,6 +722,8 @@ class NeatEvolution:
                 local_bnn = BayesianNN(genome, config)
                 local_bnn.build_network(config)
 
+
+
                 # Load attention layers
                 local_bnn.query_proj.load_state_dict(attention_layers_state_dict['query_proj'])
                 local_bnn.key_proj.load_state_dict(attention_layers_state_dict['key_proj'])
@@ -672,13 +731,15 @@ class NeatEvolution:
 
                 bnn_history_device = self.move_bnn_history_to_device(bnn_history, device)
 
-                # Evaluate genome
                 fitness = self.evaluate_genome(genome_id, genome, local_bnn, config,
                                                bnn_history_device, ground_truth_labels, ethical_ground_truths, device)
+                if fitness is not None and fitness > float('-inf'):
+                    genome.fitness = max(fitness, -100.0)
+                else:
+                    print(f"⚠️ Genome {genome_id} received invalid fitness ({fitness}) in evaluate genomes")
 
                 # Only keep valid genomes
                 if fitness is not None and fitness > float('-inf'):
-                    genome.fitness = max(fitness, -10.0)
                     valid_results.append((genome_id, fitness, genome))
 
                 # Cleanup
@@ -688,6 +749,9 @@ class NeatEvolution:
             except Exception as e:
                 print(f"Genome {genome_id} failed: {e}")
                 traceback.print_exc()
+
+        for genome_id, genome in genomes:
+            print(f"🔍 Post-evaluation - Genome {genome_id} fitness: {genome.fitness}")
 
         return valid_results  # Return only valid genomes
 
@@ -746,6 +810,7 @@ class NeatEvolution:
                 expected_output_tensor = torch.tensor(expected_output, dtype=torch.float32, device=device).unsqueeze(0)
 
                 # Compute loss and get predictions
+
                 loss, logits, probabilities = self.compute_bce_loss(
                     bnn, bnn_history_device[:idx + 1], expected_output_tensor, current_index=idx, device=device
                 )
@@ -810,73 +875,73 @@ class NeatEvolution:
             bnn_history_device.append(entry_device)
         return bnn_history_device
 
+
     def sample_entries(self, bnn_history, evaluation_window=30):
         """
         Samples an appropriate number of 'easy', 'medium', and 'hard' difficulty levels
         based on the current NEAT iteration, ensuring only available difficulties are used.
         """
-        # Track selected samples and ensure balanced difficulty distribution
-        print(f"Rank: {self.rank} Length BNN History: {len(bnn_history)}")
+
+        print(f"Rank: {self.rank} | Length of BNN History: {len(bnn_history)}")
+
+        # Initialize
         selected_entries = []
         sampling_splits = {"easy": 0, "medium": 0, "hard": 0}
 
         # Define difficulty proportions based on NEAT iteration
         if self.neat_iteration == 1:
-            difficulty_distribution = {"easy": 30, "medium": 0, "hard": 0}
+            difficulty_distribution = {"easy": evaluation_window, "medium": 0, "hard": 0}
         elif self.neat_iteration == 2:
-            difficulty_distribution = {"easy": 15, "medium": 15, "hard": 0}  # No hard yet
+            difficulty_distribution = {"easy": evaluation_window // 2, "medium": evaluation_window // 2, "hard": 0}  # No hard yet
         else:  # self.neat_iteration == 3
-            difficulty_distribution = {"easy": 10, "medium": 10, "hard": 10}
+            difficulty_distribution = {"easy": evaluation_window // 3, "medium": evaluation_window // 3, "hard": evaluation_window // 3}
 
-        # Difficulty ranges
+        # Define difficulty ranges
         difficulty_map = {
-            "easy": [1, 2, 3],
-            "medium": [4, 5, 6],
-            "hard": [7, 8, 9, 10]
+            "easy": {1, 2, 3},
+            "medium": {4, 5, 6},
+            "hard": {7, 8, 9, 10}
         }
 
         # Group entries by difficulty
         difficulty_buckets = {"easy": [], "medium": [], "hard": []}
-        for idx, entry in enumerate(bnn_history):
-            if entry['agent'] != 'Storyteller':
-                continue  # Skip non-storyteller entries
+        storyteller_entries = []
 
+        for idx, entry in enumerate(bnn_history):
+            if entry.get('agent') == 'Storyteller':  
+                storyteller_entries.append((idx, entry))  # Store all storyteller entries
+                
             difficulty = entry.get('difficulty')
-            if difficulty is None:
-                continue  # Skip if difficulty is missing
+
+            # Skip entries where difficulty is missing or undefined
+            if difficulty is None or not isinstance(difficulty, int):
+                continue  
 
             for category, range_values in difficulty_map.items():
                 if difficulty in range_values:
                     difficulty_buckets[category].append((idx, entry))
                     break
 
-        # Randomly sample entries from each difficulty bucket, but only if they are included in this iteration
+        # Sample entries from each difficulty bucket
         for difficulty, entries in difficulty_buckets.items():
-            if difficulty_distribution[difficulty] > 0:  # Only sample from difficulties in this iteration
-                print(f"difficulty_distribution[difficulty]: {difficulty_distribution[difficulty]}, Entries Length: {len(entries)}")
-                num_to_sample = min(difficulty_distribution[difficulty], len(entries))
+            num_to_sample = min(difficulty_distribution[difficulty], len(entries))
+            if num_to_sample > 0:
+                print(f"Sampling {num_to_sample} from {difficulty} (Available: {len(entries)})")
                 selected_entries.extend(random.sample(entries, num_to_sample))
-                sampling_splits[difficulty] += num_to_sample
+                sampling_splits[difficulty] = num_to_sample
 
-        # If we still don't have enough entries, randomly sample from all storyteller entries
-        if len(selected_entries) < evaluation_window and len(selected_entries) < len(bnn_history):
-            remaining_slots = evaluation_window - len(selected_entries)
-            storyteller_entries = [(idx, entry) for idx, entry in enumerate(bnn_history) if entry['agent'] == 'Storyteller']
-            extra_samples = random.sample(
-                storyteller_entries, min(remaining_slots, len(storyteller_entries))
-            )
+        # If not enough entries, sample from all storyteller entries
+        remaining_slots = evaluation_window - len(selected_entries)
+        if remaining_slots > 0 and storyteller_entries:
+            extra_samples = random.sample(storyteller_entries, min(remaining_slots, len(storyteller_entries)))
             selected_entries.extend(extra_samples)
 
         # Debugging info (remove in production)
         if self.rank == 0:
             print(f"Final Sampling Splits: {sampling_splits}")
             print(f"Selected Entries Length: {len(selected_entries)}")
-
-        print(f"Rank {self.rank}: NEAT Iteration {self.neat_iteration}")
-        print(f"Rank {self.rank}: Sampled {len(selected_entries)} entries")
-        print(f"Rank {self.rank}: Final Sampling Splits {sampling_splits}")
-        print(f"Rank {self.rank}, Eval Window = {evaluation_window}")
-
+            print(f"Rank {self.rank}: NEAT Iteration {self.neat_iteration}")
+            print(f"Rank {self.rank}, Eval Window = {evaluation_window}")
 
         return selected_entries
 

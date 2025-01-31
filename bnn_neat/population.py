@@ -119,10 +119,12 @@ class Population(object):
         ]
 
         # Compute fitness improvement
-        if self.previous_best_genome is not None:
-            fitness_improvement = max(0, self.best_genome.fitness - self.previous_best_genome.fitness)
+        if self.best_genome is None or self.previous_best_genome is None:
+            print(f"self.best_genome.fitness: {self.best_genome.fitness}")
+            print(f"self.previous_best_genome.fitness: {self.previous_best_genome.fitness}")
+            fitness_improvement = 1  # Default if no valid genomes exist
         else:
-            fitness_improvement = 0  # No improvement in the first generation
+            fitness_improvement = max(0, self.best_genome.fitness - self.previous_best_genome.fitness)
 
         species_count = len(self.species.species)
 
@@ -298,6 +300,7 @@ class Population(object):
                 # Track the best genome ever seen.
                 if self.best_genome is None:
                     self.best_genome = best
+                    self.previous_best_genome = best  # Initialize previous best as well
                 elif best.fitness > self.best_genome.fitness:
                     self.previous_best_genome = self.best_genome
                     self.best_genome = best

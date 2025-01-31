@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 import pyro
 import torch.multiprocessing as mp
 
-from loops_test1 import main_loop, generational_driver
+from svi_loops import main_loop, generational_driver
 from utils.plotting import plot_loss_and_survival, plot_survival_and_ethics, plot_loss_and_ethics
 from utils.utils_logging import save_experiment_results
 from neat.neat_evolution import NeatEvolution
@@ -46,7 +46,6 @@ size = comm.Get_size()
 
 if __name__ == "__main__":
     start_time = time.time()
-    print("is it using the updated version?")
     try:
         # Initialize configurations (if needed by all ranks)
         config_path = "config-feedforward"
@@ -73,7 +72,7 @@ if __name__ == "__main__":
         max_tokens = 10240
         temperature = 1.2
         top_p = 0.95
-        danger = 2
+        danger = 3
 
         pyro.enable_validation(False)
 
