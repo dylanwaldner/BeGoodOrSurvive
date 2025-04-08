@@ -35,3 +35,11 @@ winner_genomes/
 checkpoints/
 llm_eval/
 tools/
+
+# Ignore all loops*.py files
+loops*.py
+
+# But keep these specific ones
+!loops.py
+!svi_loops.py
+
