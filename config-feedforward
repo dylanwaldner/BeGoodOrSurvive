@@ -1,0 +1,100 @@
+[NEAT]
+fitness_criterion     = max
+fitness_threshold     = 1.0
+# Varied parameter
+pop_size              = 128
+reset_on_extinction   = True
+
+[DefaultGenome]
+# Activation and aggregation functions
+activation_default      = relu
+activation_mutate_rate  = 0.1
+activation_options      = relu sigmoid tanh
+
+aggregation_default     = sum
+aggregation_mutate_rate = 0.0
+aggregation_options     = sum
+
+# Bias configuration
+bias_mu_init_mean       = 0.0
+bias_mu_init_stdev      = 0.5
+bias_sigma_init_mean    = 0.5
+bias_sigma_init_stdev   = 0.1
+bias_mu_mutate_power    = 1.0
+bias_mu_mutate_rate     = 0.9
+bias_mu_replace_rate    = 0.5
+bias_sigma_mutate_power = 0.9
+bias_sigma_mutate_rate  = 0.9
+bias_sigma_replace_rate = 0.5
+bias_mu_max_value       = 10.0
+bias_mu_min_value       = -10.0
+bias_sigma_max_value    = 2.0
+bias_sigma_min_value    = 0.01
+
+# Weight configuration
+weight_mu_init_mean       = 0.0
+weight_mu_init_stdev      = 0.5
+weight_sigma_init_mean    = 0.5
+weight_sigma_init_stdev   = 0.1
+weight_mu_mutate_power    = 1.0
+weight_mu_mutate_rate     = 0.9
+weight_mu_replace_rate    = 0.5
+weight_sigma_mutate_power = 1.0
+weight_sigma_mutate_rate  = 0.9
+weight_sigma_replace_rate = 0.5
+weight_mu_max_value       = 10.0
+weight_mu_min_value       = -10.0
+weight_sigma_max_value    = 2.0
+weight_sigma_min_value    = 0.01
+
+# Response configuration
+response_mu_init_mean       = 1.0
+response_mu_init_stdev      = 0.5
+response_sigma_init_mean    = 0.1
+response_sigma_init_stdev   = 0.05
+response_mu_mutate_power    = 0.9
+response_mu_mutate_rate     = 0.9
+response_mu_replace_rate    = 0.5
+response_sigma_mutate_power = 0.5
+response_sigma_mutate_rate  = 0.9
+response_sigma_replace_rate = 0.5
+response_mu_max_value       = 5.0
+response_mu_min_value       = -5.0
+response_sigma_max_value    = 2.0
+response_sigma_min_value    = 0.01
+
+# Node compatibility settings
+compatibility_disjoint_coefficient = 0.8
+compatibility_weight_coefficient   = 0.8
+
+# Connection mutation rates
+conn_add_prob           = 0.9
+conn_delete_prob        = 0.9
+
+# Number of inputs, outputs, and connections
+num_hidden              = 0
+num_inputs              = 384
+num_outputs             = 4
+initial_connection      = full
+
+feed_forward            = True
+
+enabled_default         = True
+enabled_mutate_rate     = 0.1
+
+node_add_prob           = 0.9
+node_delete_prob        = 0.7
+
+[DefaultSpeciesSet]
+compatibility_threshold = 13.0
+
+[DefaultStagnation]
+species_fitness_func    = max
+max_stagnation          = 8
+species_elitism         = 2
+
+[DefaultReproduction]
+elitism                 = 2
+survival_threshold      = 0.2
+
+
