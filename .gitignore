@@ -38,8 +38,16 @@ tools/
 
 # Ignore all loops*.py files
 loops*.py
+svi_loops*.py
+main*.py
+edit_checkpoint.py
+config-feedforward-test2
+inspect_checkpoint.py
+old_main.py
+test2main.py
+test_predictive_main.py
 
 # But keep these specific ones
 !loops.py
 !svi_loops.py
-
+!main.py
