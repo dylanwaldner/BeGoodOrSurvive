@@ -33,3 +33,5 @@ pytorch/
 winner_genomes/
 126_results/
 checkpoints/
+llm_eval/
+tools/
