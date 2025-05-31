@@ -74,18 +74,18 @@ BeGoodOrSurvive/
 
 ## 🛠️ Getting Started
 
-# 1. Clone the repository
+### 1. Clone the repository
 git clone https://github.com/dylanwaldner/BeGoodOrSurvive.git
 cd BeGoodOrSurvive
 
-# 2. (Optional) Install dependencies
-# A requirements.txt file will be added soon
-# pip install -r requirements.txt
+#### 2. (Optional) Install dependencies
+A requirements.txt file will be added soon
+pip install -r requirements.txt
 
-# 3. Run the simulation
+#### 3. Run the simulation
 python3 main.py # For Neat optimization
 
-# Or run specific training/evaluation scripts
+#### Or run specific training/evaluation scripts
 python3 svi_main.py     # for SVI optimization
 python3 ethical_testing.py # for GPT optimization
 
