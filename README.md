@@ -53,7 +53,7 @@ BeGoodOrSurvive/
 ├── bnn/                 # Bayesian Neural Network implementation
 ├── neat/                # NEAT topology evolution code
 ├── bnn_neat/            # NEAT-BNN hybrid integration
-├── llm_eval/            # GPT-4o ethical evaluation testing on the [Jiminy Cricket database](https://github.com/hendrycks/jiminy-cricket) and prompt engineering
+├── llm_eval/            # GPT-4o ethical evaluation testing on the Jiminy Cricket database* and prompt engineering
 ├── storyteller.py       # Scenario generation using LLM prompts
 ├── svi_main.py          # SVI optimization and training pipeline
 ├── loops.py             # Central game loop and agent training driver
@@ -62,6 +62,7 @@ BeGoodOrSurvive/
 └── README.md            # This file
 ```
 
+\* [Jiminy Cricket database](https://github.com/hendrycks/jiminy-cricket)
 
 ---
 
