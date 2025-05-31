@@ -51,9 +51,10 @@ This project uses Bayesian Neural Networks (BNNs), NeuroEvolution of Augmenting 
 ```
 BeGoodOrSurvive/
 ├── bnn/                 # Bayesian Neural Network implementation
-├── neat/                # NEAT topology evolution code
 ├── bnn_neat/            # NEAT-BNN hybrid integration
+├── neat/                # NEAT topology evolution code
 ├── llm_eval/            # GPT-4o ethical evaluation testing on the Jiminy Cricket database [1] and prompt engineering
+├── utils/               # Utility functions for checkpointing, recording data, facilatating game pipeline, etc.
 ├── storyteller.py       # Scenario generation using LLM prompts
 ├── svi_main.py          # SVI optimization and training pipeline
 ├── loops.py             # Central game loop and agent training driver
