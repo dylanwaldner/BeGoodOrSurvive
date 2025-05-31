@@ -89,6 +89,31 @@ python3 main.py # For Neat optimization
 python3 svi_main.py     # for SVI optimization
 python3 ethical_testing.py # for GPT optimization
 
+## 📖 Citation
+If you use this codebase, please cite:
+
+@inproceedings{waldner2025odyssey,
+  title={The Odyssey of the Fittest: Can Agents Survive and Still Be Good?},
+  author={Waldner, Dylan and Miikkulainen, Risto},
+  booktitle={Proceedings of the 47th Annual Meeting of the Cognitive Science Society (CogSci)},
+  year={2025},
+  note={Forthcoming}
+}
+
+## 👤 Author  
+Dylan Waldner  
+AI Ethics Researcher  
+The University of Texas at Austin  
+[@dylanwaldner](https://github.com/dylanwaldner)  
+[https://www.dylanwaldner.com](https://www.dylanwaldner.com)
+
+
+## 📬 Contact  
+For questions, collaborations, or access to dataset files, please email [dylanwaldner@utexas.edu](mailto:dylanwaldner@utexas.edu).
+
+
+
+
 
 
 
