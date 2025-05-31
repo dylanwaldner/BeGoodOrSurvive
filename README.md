@@ -1,6 +1,6 @@
 # BeGoodOrSurvive
 
-**BeGoodOrSurvive** is the implementation of *The Odyssey of the Fittest*, a research framework for exploring how agents trained to **survive** behave under **ethical scrutiny**. Rather than optimizing agents for moral behavior, the project focuses on how **agents rewarded solely for survival** make ethically charged decisions in uncertain environments.
+**BeGoodOrSurvive** is the implementation of [*The Odyssey of the Fittest: Can Agents Survive and Still Be Good*](https://arxiv.org/abs/2502.05442) a research framework for exploring how agents trained to **survive** behave under **ethical scrutiny**. Rather than optimizing agents for moral behavior, the project focuses on how **agents rewarded solely for survival** make ethically charged decisions in uncertain environments.
 
 The core question:  
 **Can agents evolve to survive—and still be good?**
