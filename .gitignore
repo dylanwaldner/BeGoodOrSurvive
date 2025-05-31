@@ -56,7 +56,7 @@ svi_main_test1.py
 test_all_imports.py
 test_bnn.py
 working_memory_script.py
-
+mainirrelevant.py
 
 # But keep these specific ones
 !loops.py
