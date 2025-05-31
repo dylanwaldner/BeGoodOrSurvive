@@ -53,7 +53,7 @@ BeGoodOrSurvive/
 ├── bnn/                 # Bayesian Neural Network implementation
 ├── neat/                # NEAT topology evolution code
 ├── bnn_neat/            # NEAT-BNN hybrid integration
-├── llm_eval/            # GPT-4o ethical evaluation and prompt engineering
+├── llm_eval/            # GPT-4o ethical evaluation testing on Jiminy Cricket database ( and prompt engineering
 ├── storyteller.py       # Scenario generation using LLM prompts
 ├── svi_main.py          # SVI optimization and training pipeline
 ├── loops.py             # Central game loop and agent training driver
@@ -120,6 +120,10 @@ The University of Texas at Austin
 ## 📬 Contact  
 For questions, collaborations, or access to dataset files, please email [dylanwaldner@utexas.edu](mailto:dylanwaldner@utexas.edu).
 
+## 📄 License
+
+This project is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.  
+See the [LICENSE](./LICENSE) file for details.
 
 
 
