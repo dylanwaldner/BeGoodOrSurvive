@@ -55,12 +55,17 @@ BeGoodOrSurvive/
 ├── neat/                # NEAT topology evolution code
 ├── llm_eval/            # GPT-4o ethical evaluation testing on the Jiminy Cricket database [1] and prompt engineering
 ├── utils/               # Utility functions for checkpointing, recording data, facilatating game pipeline, etc.
-├── storyteller.py       # Scenario generation using LLM prompts
-├── svi_main.py          # SVI optimization and training pipeline
-├── loops.py             # Central game loop and agent training driver
-├── ethical_testing.py   # Evaluation metrics and moral analysis logic
-├── config-feedforward   # Network config file for NEAT
+└── LICENSE              # Licensing file
 └── README.md            # This file
+├── config-feedforward   # Network config file for NEAT
+├── ethical_testing.py   # Evaluation metrics and moral analysis logic
+├── loops.py             # NEAT central game loop and agent training driver
+├── main.py              # NEAT optimization and training pipeline
+├── requirements.txt     # Requirements file
+├── storyteller.py       # Scenario generation using LLM prompts
+├── svi_loops.py         # SVI central game loop and agent training driver
+├── svi_main.py          # SVI optimization and training pipeline
+
 ```
 
 [1]: [Jiminy Cricket database](https://github.com/hendrycks/jiminy-cricket)
