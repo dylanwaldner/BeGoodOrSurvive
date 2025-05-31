@@ -46,8 +46,21 @@ This project uses Bayesian Neural Networks (BNNs), NeuroEvolution of Augmenting 
 
 ---
 
-<pre> ``` 📁 Directory Structure BeGoodOrSurvive/ ├── bnn/ # Bayesian Neural Network implementation ├── neat/ # NEAT topology evolution code ├── bnn_neat/ # NEAT-BNN hybrid integration ├── llm_eval/ # GPT-4o ethical evaluation and prompt engineering ├── storyteller.py # Scenario generation using LLM prompts ├── svi_main.py # SVI optimization and training pipeline ├── loops.py # Central game loop and agent training driver ├── ethical_testing.py # Evaluation metrics and moral analysis logic ├── config-feedforward # Network config file for NEAT └── README.md # This file ``` </pre>
+## 📁 Directory Structure
 
+```
+BeGoodOrSurvive/
+├── bnn/                 # Bayesian Neural Network implementation
+├── neat/                # NEAT topology evolution code
+├── bnn_neat/            # NEAT-BNN hybrid integration
+├── llm_eval/            # GPT-4o ethical evaluation and prompt engineering
+├── storyteller.py       # Scenario generation using LLM prompts
+├── svi_main.py          # SVI optimization and training pipeline
+├── loops.py             # Central game loop and agent training driver
+├── ethical_testing.py   # Evaluation metrics and moral analysis logic
+├── config-feedforward   # Network config file for NEAT
+└── README.md            # This file
+```
 
 
 ---
