@@ -72,22 +72,7 @@ BeGoodOrSurvive/
 
 ---
 
-## 🛠️ Getting Started
-
-### 1. Clone the repository
-git clone https://github.com/dylanwaldner/BeGoodOrSurvive.git
-cd BeGoodOrSurvive
-
-### 2. (Optional) Install dependencies
-A requirements.txt file will be added soon
-pip install -r requirements.txt
-
-### 3. Run the simulation
-python3 main.py # For Neat optimization
-
-#### Or run specific training/evaluation scripts
-python3 svi_main.py     # for SVI optimization
-python3 ethical_testing.py # for GPT optimization
+<pre> ```bash ## 🛠️ Getting Started ### 1. Clone the repository git clone https://github.com/dylanwaldner/BeGoodOrSurvive.git cd BeGoodOrSurvive ### 2. (Optional) Install dependencies # A requirements.txt file will be added soon pip install -r requirements.txt ### 3. Run the simulation python3 main.py # For NEAT optimization # Or run specific training/evaluation scripts python3 svi_main.py # For SVI optimization python3 ethical_testing.py # For GPT evaluation ``` </pre>
 
 ## 📖 Citation
 If you use this codebase, please cite:
@@ -104,8 +89,7 @@ If you use this codebase, please cite:
 Dylan Waldner  
 AI Ethics Researcher  
 The University of Texas at Austin  
-[@dylanwaldner](https://github.com/dylanwaldner)  
-[https://www.dylanwaldner.com](https://www.dylanwaldner.com)
+[My Website](https://www.cs.utexas.edu/~dylantw/MyWebsite/index.php)
 
 
 ## 📬 Contact  
