@@ -89,8 +89,7 @@ git clone https://github.com/dylanwaldner/BeGoodOrSurvive.git
 cd BeGoodOrSurvive
 ```
 
-### 2. (Optional) Install dependencies  
-A `requirements.txt` file will be added soon.
+### 2. Install dependencies  
 ```bash
 pip install -r requirements.txt
 ```
