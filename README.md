@@ -77,7 +77,7 @@ BeGoodOrSurvive/
 - Survival and ethics have a **nonlinear relationship**: ethics can increase survival in moderate danger but diverge under high stress.
 - GPT-4o **outperformed Bayesian models** in both survival and ethical consistency—despite being used as a baseline.
 - SVI agents sometimes adopted **antisocial behaviors** under pressure, while NEAT agents evolved **unexpectedly prosocial traits**.
-- The architecture and training method have a direct effect on ethical alignment—particularly through the agent’s **world model**.
+- The architecture and training method may have a direct effect on ethical alignment—particularly through the agent’s **world model**.
 
 ---
 
