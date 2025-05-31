@@ -56,6 +56,7 @@ test_all_imports.py
 test_bnn.py
 emotion_rate.py
 working_memory_script.py
+baseline_loops.py
 mainirrelevant.py
 
 # But keep these specific ones
