@@ -72,7 +72,30 @@ BeGoodOrSurvive/
 
 ---
 
-<pre> ```bash ## 🛠️ Getting Started ### 1. Clone the repository git clone https://github.com/dylanwaldner/BeGoodOrSurvive.git cd BeGoodOrSurvive ### 2. (Optional) Install dependencies # A requirements.txt file will be added soon pip install -r requirements.txt ### 3. Run the simulation python3 main.py # For NEAT optimization # Or run specific training/evaluation scripts python3 svi_main.py # For SVI optimization python3 ethical_testing.py # For GPT evaluation ``` </pre>
+## 🛠️ Getting Started
+
+### 1. Clone the repository
+```bash
+git clone https://github.com/dylanwaldner/BeGoodOrSurvive.git
+cd BeGoodOrSurvive
+```
+
+### 2. (Optional) Install dependencies  
+A `requirements.txt` file will be added soon.
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Run the simulation
+```bash
+python3 main.py            # For NEAT optimization
+```
+
+#### Or run specific training/evaluation scripts
+```bash
+python3 svi_main.py        # For SVI optimization
+python3 ethical_testing.py # For GPT evaluation
+```
 
 ## 📖 Citation
 If you use this codebase, please cite:
