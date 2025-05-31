@@ -45,7 +45,7 @@ def update_bnn_history(response, agent, bnn_history, max_length, temperature, to
     bnn_history = bnn_history(prompt="What should we do next?", response=api_response, first_prompt=True,
                 agent="weak", bnn_history=interaction_history)
     """
-
+    danger -= 1
     if agent in ["Strong", "Weak"]:
         response_embedding = client.embeddings.create(
             input=response,
@@ -59,8 +59,8 @@ def update_bnn_history(response, agent, bnn_history, max_length, temperature, to
             "response": response,
             "response_embedding": response_embedding,
             "emotional_and_ethical_score": ethics_score,
-            "environment_danger_score": -1,
-            "survived": 1
+            "survived": 1,
+            "difficulty": danger
         })
         #print("Response Embedding Length (Agent): ", len(response_embedding))
 
@@ -88,14 +88,12 @@ def update_bnn_history(response, agent, bnn_history, max_length, temperature, to
                 bnn_history[-1]["survived"] = 0
                 bnn_history[-2]["survived"] = 0
         else:
-            environment_danger_score = emotion_rating(response, agent, max_length, 0.1, top_p)
             bnn_history.append({
                 "id": global_counter,
                 "agent": agent,
                 "response": response,
                 "response_embedding": response_embedding,
                 "emotional_and_ethical_score": -1,
-                "environment_danger_score": environment_danger_score,
                 "survived": -1, 
                 "difficulty": danger
             })
@@ -112,7 +110,6 @@ def update_bnn_history(response, agent, bnn_history, max_length, temperature, to
                 "response": response,
                 "response_embedding": response_embedding,
                 "emotional_and_ethical_score": 0,
-                "environment_danger_score": 0,
                 "survived": 1
             })
 

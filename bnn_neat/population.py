@@ -58,6 +58,9 @@ class Population(object):
 
         self.champion_architectures = {}
 
+        self.fitness_improvement_history = []  # To track recent fitness improvements
+
+
         self.neat_iteration = None
 
         self.save_dir = None
@@ -68,18 +71,48 @@ class Population(object):
     def remove_reporter(self, reporter):
         self.reporters.remove(reporter)
 
-    def adjust_compatibility_threshold(self, config, species_count, desired_min_species, desired_max_species, adjustment_step=0.5):
+    def adjust_compatibility_threshold(self, config, species_count):
         """
         Adjusts the compatibility threshold to maintain the desired number of species.
+        This version is improved with a moving average of species count to avoid reacting to single-generation spikes.
         """
-        if species_count < desired_min_species:
-            # Too few species; decrease the threshold to encourage more speciation
-            self.config.species_set_config.compatibility_threshold -= adjustment_step
-            print(f"Decreasing compatibility threshold to {config.species_set_config.compatibility_threshold}")
-        elif species_count > desired_max_species:
-            # Too many species; increase the threshold to encourage fewer speciation
-            self.config.species_set_config.compatibility_threshold += adjustment_step
-            print(f"Increasing compatibility threshold to {config.species_set_config.compatibility_threshold}")
+        desired_min_species = 8
+        desired_max_species = 16
+        adjustment_step = 0.1  # Gradual, precise adjustment
+        moving_average_length = 5  # Moving average over the last 5 generations
+
+        # Initialize species count history if not present
+        if not hasattr(self, "species_count_history"):
+            self.species_count_history = []
+
+        # Track species count history for moving average
+        self.species_count_history.append(species_count)
+        if len(self.species_count_history) > moving_average_length:
+            self.species_count_history.pop(0)
+
+        # Calculate the moving average of species count
+        avg_species_count = sum(self.species_count_history) / len(self.species_count_history)
+        print(f"Generation {self.generation}: Avg Species Count (Last {moving_average_length} Gens): {avg_species_count:.2f}")
+
+        # Only adjust the threshold if the moving average is consistently off target
+        if avg_species_count < desired_min_species:
+            config.species_set_config.compatibility_threshold -= adjustment_step
+            print(f"Decreasing compatibility threshold to {config.species_set_config.compatibility_threshold:.2f} (Species: {species_count})")
+
+        elif avg_species_count > desired_max_species:
+            config.species_set_config.compatibility_threshold += adjustment_step
+            print(f"Increasing compatibility threshold to {config.species_set_config.compatibility_threshold:.2f} (Species: {species_count})")
+
+        # Ensure the threshold stays within a reasonable range for stability
+        min_threshold = 5.0
+        max_threshold = 20.0
+        config.species_set_config.compatibility_threshold = max(
+            min_threshold, 
+            min(max_threshold, config.species_set_config.compatibility_threshold)
+        )
+
+        # Clear, detailed logging for tracking
+        print(f"Generation {self.generation}: Adjusted Compatibility Threshold = {config.species_set_config.compatibility_threshold:.2f}")
 
     def freeze_top_genomes(self):
         """
@@ -127,26 +160,39 @@ class Population(object):
             "conn_add_prob",
             "conn_delete_prob",
         ]
+        moving_average_length = 5  # Can be adjusted for smoother or faster response
+        mutation_adjustment_threshold = 10
+
 
         # Compute fitness improvement
         if self.best_genome is None or self.previous_best_genome is None:
-            print(f"self.best_genome.fitness: {self.best_genome.fitness}")
-            print(f"self.previous_best_genome.fitness: {self.previous_best_genome.fitness}")
             fitness_improvement = 1  # Default if no valid genomes exist
         else:
             fitness_improvement = max(0, self.best_genome.fitness - self.previous_best_genome.fitness)
 
+        # Track fitness improvement using a moving average
+        self.fitness_improvement_history.append(fitness_improvement)
+        if len(self.fitness_improvement_history) > moving_average_length:  # Last n generations
+            self.fitness_improvement_history.pop(0)
+
+        if len(self.fitness_improvement_history) > 0:
+            avg_improvement = sum(self.fitness_improvement_history) / len(self.fitness_improvement_history)
+        else:
+            avg_improvement = 0
+
+        print(f"Average Fitness Improvement (Last 5 Generations): {avg_improvement}")
+
         species_count = len(self.species.species)
-        max_generations = max_gens if max_gens else 25
+        max_generations = max_gens if max_gens else 100
         progress = self.generation / max_generations
 
         for rate in mutation_rates:
             current_rate = getattr(self.config.genome_config, rate, None)
             if current_rate is not None:
                 # Standard dynamic mutation rate adjustments
-                if fitness_improvement < 0.02 and self.generation > 5:  # If fitness is stagnating
+                if avg_improvement < 0.02 and self.generation > mutation_adjustment_threshold:  # If fitness is stagnating
                     new_rate = min(current_rate * factor, 1.0)  # Increase mutation (cap at 1.0)
-                elif fitness_improvement > 0.05:  # If fitness is steadily improving
+                elif avg_improvement > 0.05:  # If fitness is steadily improving
                     new_rate = max(current_rate * decrease_factor, 0.01)  # Decrease mutation (floor at 0.01)
                 else:
                     # Use tapered mutation rate if no significant fitness change
@@ -154,9 +200,7 @@ class Population(object):
                     new_rate = max(current_rate, taper_rate)  # Ensure no reduction below taper_rate
 
                 # Apply a 15% reduction to all mutation rates every 5 generations
-                if self.generation % 5 == 0 and self.generation > 5:
-                    new_rate *= stability_factor  # Reduce by 15%
-                    new_rate = max(new_rate, 0.01)  # Ensure no reduction below 0.01
+                new_rate = max(0.9 - ((self.generation / max_gens) * 0.8), 0.01)
 
                 setattr(self.config.genome_config, rate, new_rate)  # Update mutation rate
 
@@ -167,7 +211,7 @@ class Population(object):
         )
 
         # Print stability enforcement every 5 generations
-        if self.generation % 5 == 0 and self.generation > 5:
+        if self.generation % mutation_adjustment_threshold == 0:
             print(f"Generation {self.generation}: Stability mechanism triggered. Mutation rates reduced by 15%.")
 
         adjusted_rates = {rate: getattr(self.config.genome_config, rate) for rate in mutation_rates}
@@ -232,23 +276,54 @@ class Population(object):
 
             self.reporters.start_generation(self.generation)
 
+            # Calculate average and best fitness for each species and update history
+            """
+            if rank == 0:
+                for species in self.species.species.values():
+                    avg_fitness = sum([genome.fitness for genome in species.members.values()]) / len(species.members)
+                    best_fitness = max([genome.fitness for genome in species.members.values()])
+
+                    # Initialize history if it does not exist
+                    if not hasattr(species, "avg_fitness_history"):
+                        species.avg_fitness_history = []
+                    if not hasattr(species, "best_fitness_history"):
+                        species.best_fitness_history = []
+
+                    # Update the fitness history
+                    species.avg_fitness_history.append(avg_fitness)
+                    species.best_fitness_history.append(best_fitness)
+
+                    # Limit history to the stagnation limit
+                    if len(species.avg_fitness_history) > self.config.stagnation_config.max_stagnation:
+                        species.avg_fitness_history.pop(0)
+                    if len(species.best_fitness_history) > self.config.stagnation_config.max_stagnation:
+                        species.best_fitness_history.pop(0)
+            """
+
+
+
             # Check for dynamic stagnation adjustment
             if rank == 0:  # Only the main rank handles this adjustment
                 current_stagnation = self.config.stagnation_config.max_stagnation
-                if self.generation % 5 == 0 and self.generation != 0:  # Adjust every 5 generations instead of waiting too long
+
+                if self.generation % 10 == 0 and self.generation != 0:  # Adjust every 5 generations instead of waiting too long
                     current_stagnation = self.config.stagnation_config.max_stagnation
+
                     print(f"Generation {self.generation}: Adjusting mutation rates.")
                     self.adjust_mutation_rates(max_gens=max_gens)
+
+                    """
                     if current_stagnation > 6:
                         self.config.stagnation_config.max_stagnation -= 1  # Gradual decay
                     elif current_stagnation > 3:
                         self.config.stagnation_config.max_stagnation -= 0.5  # Slower decay when stagnation is low
 
                     print(f"Generation {self.generation}: Adjusted stagnation to {self.config.stagnation_config.max_stagnation}")
+                    """
 
-            # Broadcast the updated stagnation limit and compatibility threshold
-            #stagnation_limit = comm.bcast(self.config.stagnation_config.max_stagnation if rank == 0 else 0.0, root=0)
-            #self.config.stagnation_config.max_stagnation = stagnation_limit
+                # Broadcast the updated stagnation limit and compatibility threshold
+                stagnation_limit = comm.bcast(self.config.stagnation_config.max_stagnation if rank == 0 else 0.0, root=0)
+                self.config.stagnation_config.max_stagnation = stagnation_limit
 
             comm.Barrier()
             
@@ -394,13 +469,10 @@ class Population(object):
                 if rank == 0:
                     species_count = len(self.species.species)
                     desired_min_species = 8
-                    desired_max_species = 24
+                    desired_max_species = 16
                     self.adjust_compatibility_threshold(
-                        self.config,
-                        species_count,
-                        desired_min_species,
-                        desired_max_species,
-                        adjustment_step=0.5,
+                        config=self.config,
+                        species_count=species_count,
                     )
 
 
@@ -415,20 +487,29 @@ class Population(object):
                 self.reporters.found_solution(self.config, self.generation, self.best_genome)
 
             # Save the evolution data to a JSON file
-            with open(f"test4_prod_evolution_generation_data_{neat_iteration}.json", "w") as json_file:
+            with open(f"recycle_prod_evolution_generation_data_{neat_iteration}.json", "w") as json_file:
                 json.dump(evolution_data, json_file, indent=4)
 
+            print(f"Saved evo gen data to recycle_prod_evolution_generation_data_{neat_iteration}.json")
+
         if rank == 0:
-            architecture_file = f"test4_champion_architectures_{neat_iteration}.json"
+            architecture_file = f"recycle_champion_architectures_{neat_iteration}.json"
             with open(architecture_file, "w") as json_file:
                 json.dump(self.champion_architectures, json_file, indent=4)
 
             print(f"Saved champion architectures to {architecture_file}")
 
 
-        # Broadcast the best genome to all ranks
-        serialized_best_genome = comm.bcast(pickle.dumps(self.best_genome) if rank == 0 else None, root=0)
-        self.best_genome = pickle.loads(serialized_best_genome)
+        # If Rank 0, send the serialized best genome to all other ranks
+        if rank == 0:
+            serialized_best_genome = pickle.dumps(self.best_genome)
+            for r in range(1, size):
+                comm.send(serialized_best_genome, dest=r, tag=200)
+        else:
+            # Each other rank receives the serialized genome
+            serialized_best_genome = comm.recv(source=0, tag=200)
 
+        # Deserialize the received genome
+        self.best_genome = pickle.loads(serialized_best_genome)
         return self.best_genome
 

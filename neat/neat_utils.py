@@ -23,7 +23,7 @@ def adjust_rates_proportional(config, neat_iteration, total_iterations, initial_
     return config
 
 def save_evolution_results(results, tradeoffs, neat_iteration, file_path_template="124_prod_evolution_results_iter_{gen}.json"):
-    file_path=f"test4_prod_evolution_results_iter_{neat_iteration}.json"
+    file_path=f"recycle_prod_evolution_results_iter_{neat_iteration}.json"
     # Convert objects to JSON-compatible formats
     def convert(obj):
         if isinstance(obj, torch.Tensor):

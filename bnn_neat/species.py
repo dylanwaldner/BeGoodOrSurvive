@@ -15,6 +15,10 @@ class Species(object):
         self.fitness = None
         self.adjusted_fitness = None
         self.fitness_history = []
+        self.avg_fitness_history = []
+        self.best_fitness_history = []
+        self.stagnant = False
+
 
     def update(self, representative, members):
         self.representative = representative
@@ -22,6 +26,42 @@ class Species(object):
 
     def get_fitnesses(self):
         return [m.fitness for m in self.members.values()]
+
+    def update_fitness_history(self, avg_fitness, best_fitness, stagnation_limit):
+        """
+        Updates the species fitness history for stagnation tracking.
+        """
+        self.species_avg_fitness_history.append(avg_fitness)
+        self.species_best_fitness_history.append(best_fitness)
+
+        # Limit history to stagnation limit
+        if len(self.species_avg_fitness_history) > stagnation_limit:
+            self.species_avg_fitness_history.pop(0)
+        if len(self.species_best_fitness_history) > stagnation_limit:
+            self.species_best_fitness_history.pop(0)
+
+    def check_stagnation(self, stagnation_limit):
+        """
+        Checks if the species is stagnant by averaging fitness values over the stagnation window.
+        """
+        if len(self.species_avg_fitness_history) < stagnation_limit:
+            return  # Not enough history to evaluate
+
+        # Calculate average of the fitness window and compare to starting point
+        avg_window = sum(self.species_avg_fitness_history) / len(self.species_avg_fitness_history)
+        starting_avg = self.species_avg_fitness_history[0]
+        avg_improvement = avg_window - starting_avg
+
+        best_window = sum(self.species_best_fitness_history) / len(self.species_best_fitness_history)
+        starting_best = self.species_best_fitness_history[0]
+        best_improvement = best_window - starting_best
+
+        # Mark as stagnant only if neither average nor best have improved
+        if avg_improvement <= 0 and best_improvement <= 0:
+            self.stagnant = True
+            print(f"Species {self.key} marked stagnant. Avg: {avg_improvement:.4f}, Best: {best_improvement:.4f}")
+        else:
+            self.stagnant = False  # Reset if improvement is detected
 
 
 class GenomeDistanceCache(object):

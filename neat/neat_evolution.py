@@ -364,7 +364,7 @@ class NeatEvolution:
     def run_neat_step(self, strong_bnn, bnn_history, ground_truth_labels, ethical_ground_truths, comm, attention_layers):
         print(f"Rank {self.rank}: Starting NEAT run step", flush=True)
 
-        self.max_generations = 25
+        self.max_generations = 100
         # Broadcast the population to all ranks
         if self.rank == 0:
             # Serialize the population on rank 0
@@ -373,7 +373,17 @@ class NeatEvolution:
             serialized_population = None
 
         # Broadcast serialized population to all ranks
-        serialized_population = self.comm.bcast(serialized_population, root=0)
+        # If Rank 0, send the serialized_population to all other ranks
+        if self.rank == 0:
+            for r in range(1, self.size):
+                print(f"Rank {self.rank} | Sending serialized_population to Rank {r}")
+                comm.send(serialized_population, dest=r, tag=500)
+        else:
+            # Each other rank receives the serialized_population
+            print(f"Rank {self.rank} | Waiting to receive serialized_population...")
+            serialized_population = comm.recv(source=0, tag=500)
+            print(f"Rank {self.rank} | Received serialized_population: {type(serialized_population)}")
+
 
         import traceback
 
@@ -416,6 +426,16 @@ class NeatEvolution:
         rank = self.rank
         size = self.size
 
+        print(f"Rank: {rank}")
+        def convert_tensors(obj):
+            if isinstance(obj, dict):
+                return {key: convert_tensors(value) for key, value in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_tensors(item) for item in obj]
+            elif isinstance(obj, torch.Tensor):
+                return obj.tolist()  # Convert tensor to list
+            else:
+                return obj
 
 
         # Initialize evolution results if not already defined
@@ -430,6 +450,7 @@ class NeatEvolution:
             if rank == 0:
                 # Prepare attention layers' state_dicts
                 attention_layers_state_dict = self.attention_layers
+                print("attention layers: ", attention_layers_state_dict.keys())
 
                 # Prepare data to broadcast
                 data_to_send = {
@@ -437,18 +458,31 @@ class NeatEvolution:
                     'ground_truth_labels': ground_truth_labels,
                     'ethical_ground_truths': ethical_ground_truths,
                     'attention_layers_state_dict': attention_layers_state_dict
-                }
+        
+                    }
+
+                # Send data to all other ranks using comm.send()
+                for r in range(1, size):
+                    comm.send(data_to_send, dest=r, tag=100)
+
+                # Since Rank 0 already has the data, use it directly
+                bnn_history = data_to_send['bnn_history']
+                ground_truth_labels = data_to_send['ground_truth_labels']
+                ethical_ground_truths = data_to_send['ethical_ground_truths']
+                attention_layers_state_dict = data_to_send['attention_layers_state_dict']
+
             else:
-                data_to_send = None
+                # Each other rank receives data using comm.recv()
+                data_received = comm.recv(source=0, tag=100)
 
-            # Broadcast data to all ranks
-            data_received = comm.bcast(data_to_send, root=0)
+                # Unpack received data
+                bnn_history = data_received['bnn_history']
+                ground_truth_labels = data_received['ground_truth_labels']
+                ethical_ground_truths = data_received['ethical_ground_truths']
+                attention_layers_state_dict = data_received['attention_layers_state_dict']
 
-            # Unpack received data
-            bnn_history = data_received['bnn_history']
-            ground_truth_labels = data_received['ground_truth_labels']
-            ethical_ground_truths = data_received['ethical_ground_truths']
-            attention_layers_state_dict = data_received['attention_layers_state_dict']
+
+            print(f"🔧 Rank {rank} | Data Type After Send/Receive: {type(bnn_history)}, {type(ground_truth_labels)}, {type(ethical_ground_truths)}")
 
             # Rank 0 distributes genomes to workers
             if rank == 0:
@@ -482,6 +516,9 @@ class NeatEvolution:
 
                 # Send genomes to worker ranks
                 for worker_rank in range(1, size):
+                    if worker_rank >= len(assigned_genomes):
+                        print(f"[ERROR] Rank 0: No genome slice for worker_rank {worker_rank}")
+                        comm.send(pickle.dumps([]), dest=worker_rank, tag=11)  # send empty list
                     genomes_data = pickle.dumps(assigned_genomes[worker_rank])
                     comm.send(genomes_data, dest=worker_rank, tag=11)
 
@@ -492,7 +529,10 @@ class NeatEvolution:
             else:
                 # Worker ranks receive genomes
                 try:
+                    print(f"Rank {rank}: Waiting to receive genomes...")
                     genomes_data = comm.recv(source=0, tag=11)
+                    print(f"Rank {rank}: Received genomes.")
+
                     local_genomes = pickle.loads(genomes_data)
 
                 except Exception as e:
@@ -520,13 +560,24 @@ class NeatEvolution:
                 if genome.fitness is None:
                     genome.fitness = float('-inf')  # Assign a safe default value
 
-                if genome.evaluation_window is None or genome.evaluation_window < 24:
-                    if k <= 5:
-                        genome.evaluation_window = 24
-                    if 5 < k <= 15:
-                        genome.evaluation_window = 30
-                    if k > 15:
-                        genome.evaluation_window = 36
+                # Step 2: Set new genomes to smaller evaluation window based on generation
+                max_gens = getattr(self, 'max_generations', 100)  # Dynamically adapts
+
+                for genome_id, genome in genomes:
+                    # Only set the evaluation window for new genomes (no window set yet)
+                    if not hasattr(genome, 'evaluation_window') or genome.evaluation_window is None or genome.evaluation_window < 24:
+                        if k <= max_gens * 0.1:    # First 10% of generations
+                            genome.evaluation_window = 24
+                        elif k <= max_gens * 0.3:  # Next 20%
+                            genome.evaluation_window = 30
+                        elif k <= max_gens * 0.6:  # Next 30%
+                            genome.evaluation_window = 36
+                        elif k <= max_gens * 0.8:  # Next 20%
+                            genome.evaluation_window = 42
+                        else:                      # Final 20%
+                            genome.evaluation_window = 48
+
+
 
                 if genome.parents:
                     parent_eval_windows = [genomes[parent_id].evaluation_window for parent_id in genome.parents if parent_id in genomes and genomes[parent_id].evaluation_window is not None]
@@ -617,24 +668,64 @@ class NeatEvolution:
                     top_genome_ids = set()
 
                 # Broadcast top_genome_ids from Rank 0 to all ranks
-                top_genome_ids = comm.bcast(top_genome_ids, root=0)
+                # If Rank 0, send the top_genome_ids to all other ranks
+                if rank == 0:
+                    for r in range(1, size):
+                        print(f"Rank {rank} | Sending top_genome_ids to Rank {r}")
+                        comm.send(top_genome_ids, dest=r, tag=400)
+                else:
+                    # Each other rank receives the top_genome_ids
+                    print(f"Rank {rank} | Waiting to receive top_genome_ids...")
+                    top_genome_ids = comm.recv(source=0, tag=400)
+                    print(f"Rank {rank} | Received top_genome_ids: {top_genome_ids}")
+
 
             else:
                 top_genome_ids = set()
 
             # Step 2: Update `evaluation_window` AFTER fitness has been updated globally
-            for genome_id, genome in genomes:
-                if genome.evaluation_window == 5 and genome.parents:
-                    parent_eval_windows = [evaluation_windows.get(parent_id, 24) for parent_id in genome.parents]
-                    genome.evaluation_window = max(parent_eval_windows)
-                    print(f"Genome {genome_id} inherited evaluation_window={genome.evaluation_window} from parents {genome.parents}")
+            # Step 2: Dynamically scale `evaluation_window` based on generation
+            # Step 2: Dynamically scale `evaluation_window` based on generation
+            max_gens = getattr(self, 'max_generations', 100)
 
-                elif k <= 5:
-                    genome.evaluation_window = 24
-                elif 5 < k <= 15:
-                    genome.evaluation_window = 42 if genome_id in top_genome_ids else 30
-                elif k > 15:
-                    genome.evaluation_window = 90 if genome_id in top_genome_ids else 36
+            for genome_id, genome in genomes:
+                # Inherit from parents if available
+                if hasattr(genome, 'parents') and genome.parents:
+                    parent_eval_windows = [
+                        getattr(genomes[parent_id], 'evaluation_window', 24)
+                        for parent_id in genome.parents if parent_id in genomes
+                    ]
+                    if parent_eval_windows:
+                        inherited = max(parent_eval_windows)
+                        genome.evaluation_window = max(getattr(genome, 'evaluation_window', 24), inherited)
+
+                # Dynamically assign window if not set or too small
+                if not hasattr(genome, 'evaluation_window') or genome.evaluation_window < 24:
+                    if k <= max_gens * 0.1:
+                        genome.evaluation_window = 24
+                    elif k <= max_gens * 0.3:
+                        genome.evaluation_window = 30
+                    elif k <= max_gens * 0.6:
+                        genome.evaluation_window = 36
+                    elif k <= max_gens * 0.8:
+                        genome.evaluation_window = 42
+                    else:
+                        genome.evaluation_window = 48
+
+                # Only top genomes get an extended window
+                if genome_id in top_genome_ids:
+                    if k <= max_gens * 0.1:
+                        genome.evaluation_window = 42
+                    elif k <= max_gens * 0.3:
+                        genome.evaluation_window = 48
+                    elif k <= max_gens * 0.6:
+                        genome.evaluation_window = 60
+                    elif k <= max_gens * 0.8:
+                        genome.evaluation_window = 72
+                    else:
+                        genome.evaluation_window = 90
+
+
 
             comm.Barrier()
 
@@ -704,18 +795,20 @@ class NeatEvolution:
                     print(f"No improvement in fitness for {self.generations_without_improvement} generations")
 
                 # Check for stagnation
-                if self.generations_without_improvement >= self.stagnation_limit:
-                    print(f"Stopping evolution: No improvement in fitness for {self.stagnation_limit} generations.")
-                    save_evolution_results(self.evolution_results, self.population_tradeoffs, neat_iteration = self.neat_iteration)
-                    should_stop = True
-                else:
-                    should_stop = False
+                should_stop = False
 
             else:
                 should_stop = None
 
             # Broadcast the decision to all processes
-            should_stop = comm.bcast(should_stop, root=0)
+            # If Rank 0, send the should_stop value to all other ranks
+            if rank == 0:
+                for r in range(1, size):
+                    comm.send(should_stop, dest=r, tag=300)
+            else:
+                # Each other rank receives the should_stop value
+                should_stop = comm.recv(source=0, tag=300)
+
             comm.Barrier()
             return should_stop
 
@@ -805,11 +898,11 @@ class NeatEvolution:
 
             # Determine available difficulty levels based on global_counter
             if self.neat_iteration == 1:
-                available_difficulties = {2}
+                available_difficulties = {1, 2, 3}
             elif self.neat_iteration == 2:
-                available_difficulties = {2, 5}
+                available_difficulties = {1, 2, 3, 4, 5, 6}
             else:
-                available_difficulties = {2, 5, 8}
+                available_difficulties = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 
             # Sample entries for evaluation, ensuring they match available difficulties
             entries_to_evaluate = [
@@ -817,16 +910,27 @@ class NeatEvolution:
                 if entry.get('difficulty') in available_difficulties
             ]
 
-            print(f"Evaluating genome {genome_id}: Sampled {len(entries_to_evaluate)} entries")
+            print(len(entries_to_evaluate))
+
 
             # Merge list of dictionaries into a single dictionary
-            ground_truth_labels_dict = {k: v for d in ground_truth_labels for k, v in d.items()}
-            ethical_ground_truths_dict = {k: v for d in ethical_ground_truths for k, v in d.items()}
+            ground_truth_labels_dict = {
+                int(counter): nested['material_labels'][0]      # <-- the list of 0/1 flags
+                for entry in ground_truth_labels           # iterate over the outer list
+                for counter, nested in entry.items()       # unpack each {counter: nested_dict}
+                }
+
+            ethical_ground_truths_dict = {
+                int(counter): nested["utility_scores"]          # pick the list you care about
+                for entry in ethical_ground_truths         # loop over the outer list
+                for counter, nested in entry.items()       # unpack {counter: nested_dict}
+            }
+
 
             decision_history = []
             ethical_score_history = []
 
-            difficulty_scaling = {2: 1.0, 5: 1.5, 8: 2.0}
+            difficulty_scaling = {1: 1.0, 2: 1.0, 4: 1.5, 5: 1.5, 7: 2.0, 8: 2.0}
 
             for idx, entry in entries_to_evaluate:
                 entry_id = entry.get('id')
@@ -834,6 +938,7 @@ class NeatEvolution:
                 ethical_scores = ethical_ground_truths_dict.get(entry_id)
 
                 if expected_output is None or ethical_scores is None:
+                    print("skipped")
                     continue  # Skip if data is missing
 
                 expected_output_tensor = torch.tensor(expected_output, dtype=torch.float32, device=device).unsqueeze(0)
@@ -846,6 +951,7 @@ class NeatEvolution:
 
                 difficulty_level = int(entry.get("difficulty", 2))  # Default to 2
                 loss = loss.item() / difficulty_scaling.get(difficulty_level, 1.0)  # Default scaling = 1.0
+                print("loss: ", loss)
 
 
                 total_loss += loss
@@ -957,6 +1063,7 @@ class NeatEvolution:
             if num_to_sample > 0:
                 selected_entries.extend(random.sample(entries, num_to_sample))
                 sampling_splits[difficulty] = num_to_sample
+
 
         # If not enough entries, sample from all storyteller entries
         remaining_slots = evaluation_window - len(selected_entries)

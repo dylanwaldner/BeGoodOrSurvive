@@ -1,100 +1,106 @@
-import torch
-import os
-from bnn.bayesnn import BayesianNN
-import openai
+"""
+inspect_checkpoint.py
+-------------------------------------------------
+Utility to sanity‑check the main training checkpoint
+and the final winner‑genome checkpoint.
+"""
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+import os, torch, types, sys
+from pprint import pprint
 
-# Load the checkpoint
-checkpoint_path = "checkpoint_2025-02-04_01-59-22.pth"
-checkpoint = torch.load(checkpoint_path, map_location="cpu")
+# -------------------------------------------------------------------------
+# 0) Patch utils.text_generation to avoid OpenAI import side‑effects
+# -------------------------------------------------------------------------
+sys.modules["utils.text_generation"] = types.ModuleType("utils.text_generation")
+sys.modules["utils.text_generation"].generate_text = lambda *a, **k: "dummy"
 
-# Print key metadata
-print(f"Counter: {checkpoint.get('counter', 'Not found')}")
-print(f"Global Counter: {checkpoint.get('global_counter', 'Not found')}")
-print(f"Last Step: {checkpoint.get('last_step', 'Not found')}")
-print(f"Danger Level: {checkpoint.get('danger', 'Not found')}")
-print(f"Generation Loss History (last 5): {checkpoint.get('gen_loss_history', [])[-5:]}")
-print(f"Generation Ethical History (last 5): {checkpoint.get('gen_ethical_history', [])[-5:]}")
-print(f"len(Bnn_history): {checkpoint.get('bnn_history') and len(checkpoint['bnn_history']) or 'Not found'}")
+# -------------------------------------------------------------------------
+# 1) Load main checkpoint ---------------------------------------------------
+# -------------------------------------------------------------------------
+CKPT_PATH = "checkpoint.pth"
+ckpt = torch.load(CKPT_PATH, map_location="cpu")
 
-# Check if NEAT trainer state exists
-if checkpoint.get('neat_trainer_state') is not None:
-    print("NEAT trainer state is present.")
+print(f"\n🗂  Loaded {CKPT_PATH}")
+print(ckpt.keys())
+print(ckpt.get("model_state_dict").keys())
+print("Overall Summary Keys: ", ckpt.get("overall_summary").keys())
+print("Overall summary ground truth length: ", len(ckpt.get("overall_summary")["ground_truth_labels"]))
+print("Overall summary ground truth first five: ", ckpt.get("overall_summary")["ground_truth_labels"][:5])
+print("Overall summary ethical ground truth first five: ", ckpt.get("overall_summary")["ethical_ground_truths"][:5])
+print("ckpt groun truth labels length: ", len(ckpt.get('ground_truth_label_list')))
+
+# helper to report size/len or 'missing'
+def report(key, obj):
+    if obj is None:
+        print(f"  {key:30s}: ✖  (missing)")
+    elif isinstance(obj, (list, tuple, dict)):
+        print(f"  {key:30s}: ✔  len = {len(obj)}")
+    else:
+        print(f"  {key:30s}: ✔  type = {type(obj)}")
+
+to_check = [
+    ("counter",                          ckpt.get("counter")),
+    ("global_counter",                   ckpt.get("global_counter")),
+    ("danger",                           ckpt.get("danger")),
+    ("bnn_history",                      ckpt.get("bnn_history")),
+    ("ground_truth_label_list",          ckpt.get("ground_truth_label_list")),
+    ("ethical_ground_truths",            ckpt.get("ethical_ground_truths")),
+    ("attention_layers",                 ckpt.get("attention_layers")),
+    ("genome (init)",                    ckpt.get("genome")),
+    ("config (NEAT)",                    ckpt.get("config")),
+    ("neat_trainer_state",               ckpt.get("neat_trainer_state")),
+    ("generational_history",             ckpt.get("generational_history")),
+    ("overall_summary",                  ckpt.get("overall_summary")),
+]
+
+print("\n📋  Checkpoint contents:")
+for key, obj in to_check:
+    report(key, obj)
+
+gen_history = ckpt.get("generational_history")
+#print(f"gen history: {gen_history}")
+ground_truths = ckpt.get("ground_truth_label_list")
+#print(f"ground truths: {ground_truths}")
+overall_summary = ckpt.get("overall_summary")
+bnn_history_print = ckpt["bnn_history"][:5]
+for i in bnn_history_print:
+    print(i['id'])
+#print(f"overall summary keys: {overall_summary.keys()}")
+# -------------------------------------------------------------------------
+# 2) Optional: rebuild BNN from winner‑genome checkpoint --------------------
+# -------------------------------------------------------------------------
+WINNER_PTH = "53_prod_winner_genome_model_iteration_3.pth"
+if os.path.exists(WINNER_PTH):
+    print(f"\n🔧  Loading winner genome checkpoint: {WINNER_PTH}")
+    wckpt = torch.load(WINNER_PTH, map_location="cpu")
+
+    # Ensure required keys
+    required = ["genome", "attention_layers", "config", "model_state_dict"]
+    missing  = [k for k in required if k not in wckpt]
+    if missing:
+        raise ValueError(f"Winner checkpoint missing keys: {missing}")
+
+    from bnn.bayesnn import BayesianNN
+    genome           = wckpt["genome"]
+    attention_layers = wckpt["attention_layers"]
+    print(f"model attention layers: {attention_layers.keys()}")
+    neat_config      = wckpt["config"]
+    print(f"neat_config: {neat_config}")
+    state_dict       = ckpt["model_state_dict"]
+    print(f"state dict: {state_dict.keys()}")
+
+    # Rebuild BNN
+    bnn = BayesianNN(genome, neat_config)
+    miss, extra = bnn.load_state_dict(state_dict, strict=False)
+    if miss:
+        print(f"  ❕ Missing keys:   {miss}")
+    if extra:
+        print(f"  ❕ Unexpected keys:{extra}")
+
+    print("✅ Query weight loaded correctly:", torch.allclose(bnn.query_proj.weight, state_dict['query_proj.weight']))
+
+    print(f"  ✔  BNN rebuilt: parameters = {sum(p.numel() for p in bnn.parameters())}")
+
 else:
-    print("No NEAT trainer state found.")
-
-# Check if generational history exists
-if checkpoint.get('generational_history'):
-    print(f"Generational History Entries: {len(checkpoint['generational_history'])}")
-else:
-    print("No generational history found.")
-
-# Check for overall summary
-if 'overall_summary' in checkpoint:
-    print("Overall summary is present.")
-else:
-    print("No overall summary found.")
-
-print("MODEL LOADING---------------------------------")
-
-import os
-import torch
-
-# Define the winner genome checkpoint path
-winner_genome_checkpoint_path = "test3_prod_winner_genome_model_iteration_3.pth"
-
-# Ensure the checkpoint is loaded correctly
-if os.path.exists(winner_genome_checkpoint_path):
-    print(f"Loading winner genome checkpoint from {winner_genome_checkpoint_path}...")
-    winner_genome_checkpoint = torch.load(winner_genome_checkpoint_path, map_location=torch.device("cpu"))
-
-    # Validate required keys exist in checkpoint
-    required_keys = ['genome', 'attention_layers', 'config', 'model_state_dict']
-    missing_keys = [key for key in required_keys if key not in winner_genome_checkpoint]
-
-    if missing_keys:
-        raise ValueError(f"Checkpoint is missing required keys: {missing_keys}")
-
-    # Extract components
-    winner_genome = winner_genome_checkpoint['genome']
-    attention_layers = winner_genome_checkpoint['attention_layers']
-    config = winner_genome_checkpoint['config']
-    model_state_dict = winner_genome_checkpoint['model_state_dict']
-
-    # Validate model state dictionary
-    if not isinstance(model_state_dict, dict):
-        raise ValueError("Invalid model_state_dict format in checkpoint.")
-
-    # Reconstruct the BNN using the winner genome
-    strong_bnn = BayesianNN(winner_genome, config, attention_layers=attention_layers)
-    
-    num_params = sum(p.numel() for p in strong_bnn.parameters())
-    print(f"Total parameters in BNN: {num_params}")
-
-
-    # Load state dict and check for missing or unexpected keys
-    missing_keys, unexpected_keys = strong_bnn.load_state_dict(model_state_dict, strict=False)
-
-    if missing_keys:
-        print(f"Warning: The following keys are missing in the loaded state dict: {missing_keys}")
-    if unexpected_keys:
-        print(f"Warning: The following unexpected keys were found in the state dict: {unexpected_keys}")
-
-    print("Winner genome and BNN successfully loaded.")
-
-    # Verify model's device and tensor shapes
-    for name, param in strong_bnn.named_parameters():
-        print(f"Parameter: {name}, Shape: {param.shape}, Device: {param.device}")
-
-
-else:
-    print(f"Winner genome checkpoint not found at {winner_genome_checkpoint_path}. Using previous model state.")
-
-    # Ensure the main checkpoint exists before restoring
-    if 'model_state_dict' not in checkpoint:
-        raise ValueError("No valid 'model_state_dict' found in the previous checkpoint!")
-
-    # Load previous model state
-    strong_bnn.load_state_dict(checkpoint['model_state_dict'])
+    print(f"\n⚠️  Winner genome file not found: {WINNER_PTH}")
 

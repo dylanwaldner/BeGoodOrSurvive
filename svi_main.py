@@ -72,7 +72,7 @@ if __name__ == "__main__":
         max_tokens = 10240
         temperature = 1.2
         top_p = 0.95
-        danger = 3
+        danger = 2
 
         pyro.enable_validation(False)
 
@@ -88,10 +88,22 @@ if __name__ == "__main__":
         global_counter = 0
         # Call the loop logic
         result, gen_loss_history, gen_ethical_history, ethical_ground_truths, survival_ground_truths = generational_driver(
-            votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history,
-            ground_truth_label_list, ethical_ground_truths, gen_loss_history, gen_ethical_history,
-            bnn, config, num_gens, neat_trainer, global_counter, comm
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            danger=danger,
+            shared_history=shared_history,
+            bnn_history=bnn_history,
+            ground_truth_label_list=ground_truth_label_list,
+            ethical_ground_truths=ethical_ground_truths,
+            strong_bnn=bnn,
+            config=config,
+            num_gens=num_gens,
+            neat_trainer=neat_trainer,
+            global_counter=global_counter,
+            comm=comm
         )
+
         print("Experiment complete. Results saved.")
 
     except Exception as e:

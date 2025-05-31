@@ -46,6 +46,17 @@ inspect_checkpoint.py
 old_main.py
 test2main.py
 test_predictive_main.py
+find_import_origins.py
+generate_import_test.py
+get-pip.py
+mpi_testing.py
+recycle_data_loops.py
+recycle_summary.json.tmp
+svi_main_test1.py
+test_all_imports.py
+test_bnn.py
+working_memory_script.py
+
 
 # But keep these specific ones
 !loops.py

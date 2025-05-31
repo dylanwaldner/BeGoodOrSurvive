@@ -32,7 +32,7 @@ class BayesianNN(nn.Module):
         self.connections = {}  # To store connections with their properties
         self.nodes = {}        # To store node information if needed
 
-        self.input_size = 1541 # Now variable
+        self.input_size = 1540 # Now variable
         self.d_model = 384
 
         self.dropout = nn.Dropout(p=0.1)
@@ -318,7 +318,6 @@ class BayesianNN(nn.Module):
                 agent_mapping[dictionary["agent"]].clone().detach().float(),
                 torch.tensor(dictionary["response_embedding"], device=device),
                 torch.tensor([dictionary["emotional_and_ethical_score"]], device=device),
-                torch.tensor([dictionary["environment_danger_score"]], device=device),
                 torch.tensor([dictionary["survived"]], device=device),
             ])
 
@@ -1039,8 +1038,8 @@ class BayesianNN(nn.Module):
         x_data = torch.empty((1, self.input_size), device=device).fill_(-1)  # Dummy input tensor
 
         # Ensure ground_truth_labels is a tensor
-        if isinstance(ground_truth_labels, list):
-            ground_truth_labels = torch.tensor(ground_truth_labels, dtype=torch.float32)
+        if isinstance(ground_truth_labels["survival_labels"][0], list):
+            ground_truth_labels = torch.tensor(ground_truth_labels["survival_labels"][0], dtype=torch.float32)
 
         y_data = ground_truth_labels.to(device)
 
