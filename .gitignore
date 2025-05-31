@@ -33,7 +33,6 @@ pytorch/
 winner_genomes/
 126_results/
 checkpoints/
-llm_eval/
 tools/
 
 # Ignore all loops*.py files
@@ -55,6 +54,7 @@ recycle_summary.json.tmp
 svi_main_test1.py
 test_all_imports.py
 test_bnn.py
+emotion_rate.py
 working_memory_script.py
 mainirrelevant.py
 
@@ -62,5 +62,4 @@ mainirrelevant.py
 !loops.py
 !svi_loops.py
 !main.py
-!emotion_rate.py
 
